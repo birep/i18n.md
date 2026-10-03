@@ -1,6 +1,10 @@
 # i18n.md
 
+**[Try the live demo at i18n.md](https://i18n.md)** · Made by **[Liko Labs](https://likolabs.com)** in Hilo, Hawaiʻi
+
 Keep your interface strings in Markdown, for apps and for plain HTML sites: one file per language, readable and editable by translators, reviewers and LLMs. A compiler checks every language and generates typed code your app imports.
+
+[Liko Labs](https://likolabs.com) created i18nmd and makes it freely available in the hope of making ʻōlelo Hawaiʻi easy to offer for any business or community group in Hawaiʻi. A website in English and Hawaiian is three commands, `extract`, `--add haw` and `render` (see [Static websites](#static-websites)), and every Hawaiian sentence stays in a plain file a fluent speaker can review and correct. For help bringing ʻōlelo Hawaiʻi to your site or app, contact [Liko Labs](https://likolabs.com).
 
 ````md
 # Français
@@ -412,4 +416,4 @@ The tests use a local stand-in for both LLM APIs, so they need no keys and make 
 
 ## License
 
-MIT
+MIT © [Liko Labs](https://likolabs.com)
