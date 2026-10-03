@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Published to npm: `npm install --save-dev i18nmd`. npm 12 refuses GitHub and tarball URLs by default, so the 0.1.0 install instructions failed there.
+
 ## 0.1.0
 
 The first release.

@@ -35,10 +35,10 @@ The files are the source of truth. They diff in pull requests, and anyone can ha
 
 ## Install
 
-i18nmd needs Node.js 22 or newer. Version 0.1 installs from GitHub:
+i18nmd needs Node.js 22 or newer.
 
 ```sh
-npm install --save-dev github:birep/i18n.md#v0.1.0
+npm install --save-dev i18nmd
 npx i18nmd --version
 ```
 
@@ -359,7 +359,6 @@ Every command takes `--dir`, and `--source` to override the source language reco
 
 ## Limits in 0.1
 
-- Not yet on npm; install from GitHub as above.
 - The extractor reads JavaScript and TypeScript. Strings in object properties (`{ label: "Save" }`) and plain `.ts` files need `/* i18n */` or the extraction prompt.
 - Switching language loads that whole language at once, not per division.
 - The Python target ignores tags and formats numbers without locale grouping; dates are passed through as given.
