@@ -1,10 +1,11 @@
 name: Publish to npm
-# Pushing a v* tag publishes that version. npm trusts this workflow through
-# OIDC (npmjs.com → package settings → Trusted publishing), so no token or
-# one-time code is stored anywhere.
+# Publishes the checked-out tag. npm trusts this workflow through OIDC
+# (npmjs.com → package settings → Trusted publishing), so no token or one-time
+# code is stored anywhere. Run it by hand (Actions → Publish to npm → Run
+# workflow, on a v* tag) until trusted publishing is set up; then trigger it on
+# `push: tags: ['v*']` instead.
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
 permissions:
   contents: read
   id-token: write

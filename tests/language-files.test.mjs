@@ -116,3 +116,25 @@ test('an optional placeholder may be absent from a translation file read on its 
   assert.equal(parseLanguageFiles({ 'i18n-en.md': en, 'i18n-it.md': it }, { strict: true }).messages[0].translations.it, 'Immagino {size}');
   assert.throws(() => parseLanguageFiles({ 'i18n-en.md': en.replace('{a} ', ''), 'i18n-it.md': it }), /optional \{a\} is absent from the source/);
 });
+test('a hand edit made before the source changed does not hide the change', () => {
+  const one = text => `# X\n\n## a\n\n\`\`\`icu\n${text}\n\`\`\`\n`;
+  const at = (en, fr) => parseLanguageFiles({ 'i18n-en.md': one(en), 'i18n-fr.md': one(fr) }, { source: 'en' });
+  const lock = { translations: {} };
+  syncLock(at('Hello', 'Salut'), lock);
+  // Someone corrects the French, then the English changes, all before the next sync.
+  let catalog = at('Hello there', 'Bonjour');
+  assert.deepEqual(report(catalog, lock)[0].stale, ['a'], 'both changed: the order is unknown, so it needs review');
+  assert.deepEqual(syncLock(catalog, lock), ['fr: a is stale; its source text changed']);
+  assert.deepEqual(syncLock(catalog, lock), [], 'a repeated sync reports nothing new');
+  assert.deepEqual(report(catalog, lock)[0].stale, ['a'], 'still stale until the translation is edited');
+  // Now the translator updates it for the new English: accepted.
+  catalog = at('Hello there', 'Bonjour à toi');
+  assert.deepEqual(report(catalog, lock)[0].stale, []);
+  assert.match(syncLock(catalog, lock)[0], /fr: a accepted/);
+  assert.equal(lock.translations.fr.a.split(':').length, 2, 'accepted entries go back to source:translation');
+  // The English changes again before that edit is synced: stale again.
+  assert.deepEqual(report(at('Hi there', 'Bonjour à toi'), lock)[0].stale, ['a']);
+  // Entries written by 0.1 (no third part) still work.
+  const old = { translations: { fr: { a: lock.translations.fr.a } } };
+  assert.deepEqual(report(at('Hi there', 'Bonjour à toi'), old)[0].stale, ['a']);
+});

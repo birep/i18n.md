@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- **Fixed:** a translation edited before its source text changed was counted as updated for the new text, so the change went unnoticed. Now an edit only counts once `sync` (or `status`) has seen the source change; if both changed in between, the translation is marked stale for review. Existing lock files keep working.
+
 ## 0.2.0
 
 - **Static websites.** `extract` reads `.html` pages: it marks each sentence, the title and description, image text and form labels with a `data-i18n` attribute and leaves the English in place, and takes `/* i18n */` strings from inline scripts. `render <site> --out dist --url …` writes a copy of every page in every language (`/haw/…`) with `lang`, `hreflang` links, `og:url`, adjusted relative links, and a language switcher wherever a page has `<nav data-i18n-languages>`. No JavaScript needed.
