@@ -1,0 +1,25 @@
+name: Publish to npm
+# Pushing a v* tag publishes that version. npm trusts this workflow through
+# OIDC (npmjs.com → package settings → Trusted publishing), so no token or
+# one-time code is stored anywhere.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: The tag matches package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm publish --provenance --access public

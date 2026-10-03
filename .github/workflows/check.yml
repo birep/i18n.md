@@ -14,3 +14,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm pack --dry-run
+      # npm silently rewrites or drops package.json fields it rejects at publish
+      # time (it once removed the i18nmd command); fail here instead.
+      - name: package.json needs no publish-time fixes
+        run: "! npm publish --dry-run 2>&1 | grep -i 'auto-corrected'"

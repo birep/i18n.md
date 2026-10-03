@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 *.tgz
 scratch.md
+.npmrc
