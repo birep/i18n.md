@@ -1,0 +1,378 @@
+# i18n.md
+
+Keep your interface strings in Markdown: one file per language, readable and editable by translators, reviewers and LLMs. A compiler checks every language and generates typed code your app imports.
+
+````md
+# Français
+
+## cart_items
+
+Context: Item count in the cart header.
+
+```icu
+{count, plural, one {# article} other {# articles}}
+```
+````
+
+```tsx
+<p>{i18nmd('cart_items', { count })}</p>
+```
+
+The files are the source of truth. They diff in pull requests, and anyone can hand one to a person or an LLM to translate. Everything i18nmd does is a change to those files or code generated from them.
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Language files](#language-files)
+- [Divisions](#divisions)
+- [Using the generated code](#using-the-generated-code)
+- [Extracting strings from your code](#extracting-strings-from-your-code)
+- [Translating with an LLM](#translating-with-an-llm)
+- [Keeping translations current](#keeping-translations-current)
+- [Python](#python)
+- [Other formats and libraries](#other-formats-and-libraries)
+- [Command reference](#command-reference)
+- [Limits in 0.1](#limits-in-01)
+
+## Install
+
+i18nmd needs Node.js 22 or newer. Version 0.1 installs from GitHub:
+
+```sh
+npm install --save-dev github:birep/i18n.md#v0.1.0
+npx i18nmd --version
+```
+
+## Quick start
+
+**1. Extract the strings** from a React or other JSX/TSX codebase. With `--in-place`, i18nmd rewrites your sources, so commit first and review the diff.
+
+```sh
+npx i18nmd extract src --in-place
+```
+
+Your strings land in `translations/i18n-en.md` (use `--source it` if your app is in Italian), and your code calls the translations instead:
+
+```tsx
+// before
+<p>Welcome back, {user.name}!</p>
+// after
+import { i18nmd } from '../i18n/i18n';
+<p>{i18nmd('welcome_back', { name: user.name })}</p>
+```
+
+The extractor prints what it could not convert, such as text built in code or counts that should be plurals. [The extraction prompt](PROMPT.md) tells a coding agent how to finish the job.
+
+**2. Add languages.** Ask an LLM through the CLI, or write the files yourself:
+
+```sh
+export ANTHROPIC_API_KEY=…    # or OPENAI_API_KEY, or I18NMD_* (see below)
+npx i18nmd --add french --add german
+```
+
+**3. Compile** into `src/i18n`. Add it to your build so every build uses the latest translations:
+
+```sh
+npx i18nmd compile
+```
+
+```json
+{ "scripts": { "prebuild": "i18nmd compile" } }
+```
+
+**4. Let readers choose a language.** Calls translate into the current language, which starts as the reader's browser language:
+
+```tsx
+import { useSyncExternalStore } from 'react';
+import { languages, getLanguage, setLanguage, onLanguageChange } from './i18n/language.mjs';
+
+export function LanguagePicker() {
+  const language = useSyncExternalStore(onLanguageChange, getLanguage);
+  return (
+    <select value={language} onChange={e => void setLanguage(e.target.value)}>
+      {Object.entries(languages).map(([code, name]) => <option key={code} value={code} lang={code}>{name}</option>)}
+    </select>
+  );
+}
+```
+
+**5. Keep it current.** After editing source text, `npx i18nmd status` shows what needs translating and `npx i18nmd translate` fills it in.
+
+## Language files
+
+`translations/i18n-fr.md` holds French and nothing else. The filename gives the language code (`fr`, `pt-BR`, or a custom name such as `pirate`). The first heading names the language in that language, and each `##` heading is a token:
+
+````md
+# Français
+
+## cart_items
+
+Context: Item count in the cart header.
+
+```icu
+{count, plural, one {# article} other {# articles}}
+```
+
+## greeting
+
+Optional: a
+
+```icu
+Bonjour {name} !
+```
+````
+
+- **Context** explains where a string appears and anything a translator needs: tone, length limits, what not to translate.
+- **Optional** lists placeholders a translation may leave out, such as an English article (`{a}` for "a" or "an") that other languages don't need.
+- The message is [ICU MessageFormat](https://unicode-org.github.io/icu/userguide/format_parse/messages/): named placeholders `{name}`, `plural`, `selectordinal`, `select`, `number` (`integer`, `percent`, `::currency/EUR`), `date` and `time` with a style, and tags such as `<b>…</b>`.
+- An apostrophe is just an apostrophe. To write a literal brace, or `<` before a letter, quote it: `'{'`, `'<'`.
+
+That is the whole format. Bookkeeping lives beside the files in `i18nmd.lock.json`, which records the source language and which translations are current.
+
+Every language file uses the same tokens and placeholders as the source. `i18nmd check` validates all of them: a translation with a missing or unknown placeholder, a broken plural or a tag that doesn't match is reported, and the build uses the source text until it is fixed. Builds never fail on missing or outdated translations.
+
+## Divisions
+
+A large app can split its strings into divisions, one subdirectory each, divided however suits the people editing them:
+
+```
+translations/
+  i18nmd.lock.json
+  account/i18n-en.md     account/i18n-fr.md
+  ui/i18n-en.md          ui/i18n-fr.md
+  marketing/i18n-en.md   marketing/i18n-fr.md
+  marketing/landing/i18n-en.md
+```
+
+Each division has its own source file and translations, and its tokens are namespaced by its path. `## hero` in `marketing/i18n-en.md` is the token `marketing.hero`:
+
+```tsx
+import { i18nmd } from './i18n/marketing';
+import './i18n/marketing.landing';
+import './i18n/knowledge-hub';
+
+i18nmd.marketing('hero')            // or i18nmd('marketing.hero')
+i18nmd.marketing.landing('save')    // marketing/landing/
+i18nmd.knowledgeHub('search')       // knowledge-hub/ becomes camelCase
+```
+
+Files keep the short names, so two divisions can both have a `save`. Name division directories with letters, digits, `_` and `-`; names every function already has (`name`, `length`, `call`, …) and `in` are refused.
+
+Divisions also split your bundle: each one compiles to its own module, which your bundler ships with the code that uses it. Put the strings every page needs, such as sign-in and loading screens, in a small division of their own, so the first download carries only those.
+
+Commands on `translations/` cover every division, and `status` breaks progress down by division. Pass a division's directory to work on it alone, such as `i18nmd translate translations/marketing`. The lock stays at the top and is shared.
+
+## Using the generated code
+
+```sh
+npx i18nmd compile                  # translations/ → src/i18n
+npx i18nmd compile --out lib/i18n   # elsewhere
+```
+
+### Calling translations
+
+```tsx
+import { i18nmd } from './i18n/i18n';
+
+i18nmd('cart_items', { count: 3 })       // top-level token
+i18nmd.ui('save')                        // a division's token
+i18nmd.in('fr').ui('save')               // a fixed language
+```
+
+TypeScript checks every token name and its values: a missing value, a wrong type or a token from another division is a compile error. A plain placeholder also accepts `null` or `undefined` and renders nothing, as JSX does.
+
+Code that calls a division imports `i18nmd` from that division's module (`./i18n/ui`). A file that calls a second division also imports its module, `import './i18n/marketing'`. `extract` writes these imports. `npx i18nmd check --in src` fails with the line to add when one is missing, and `--fix` adds it.
+
+Strings in code that runs once, such as a module-level constant, are translated at that moment. Wrap them in a function so a language change reaches them:
+
+```ts
+export const steps = () => [i18nmd.ui('measure'), i18nmd.ui('cut')];
+```
+
+### The current language
+
+The current language starts as the reader's earlier choice, then their browser's languages, then the source language. `language.mjs` manages it and holds no messages, so your entry code can import it cheaply:
+
+| Export | Does |
+| --- | --- |
+| `languages` | Every language code and its name in that language, for a picker. |
+| `getLanguage()` | The current language. |
+| `setLanguage(code)` | Loads the language, switches to it and remembers it. Accepts a close match: `pt` picks `pt-BR`. |
+| `onLanguageChange(listener)` | Calls the listener after each switch; returns an unsubscribe function. |
+| `ready` | Resolves once the reader's language has loaded. |
+| `loadLanguage(code)` | Loads a language for `i18nmd.in(code)`, on a server or in tests. |
+
+Each translation is its own chunk, so readers download only their language. Render after `ready` so a reader who chose French sees French from the first paint; for the source language it resolves at once:
+
+```tsx
+import { ready, getLanguage, onLanguageChange } from './i18n/language.mjs';
+
+function Localized() {
+  const language = useSyncExternalStore(onLanguageChange, getLanguage);
+  return <App key={language} />;    // re-render everything in the new language
+}
+ready.then(() => createRoot(root).render(<Localized />));
+```
+
+Language lookup tries the exact code (`fr-CA`), then the base language (`fr`), then the source language. Inside a message, a missing translation falls back to the source text.
+
+### Rich text
+
+Inline markup stays inside the sentence, so translators can reorder it:
+
+```icu
+Read <link>the guide</link> before <b>{date, date, long}</b>.
+```
+
+```tsx
+i18nmd('read_the_guide', {
+  date,
+  link: chunks => <a key="link" href="/guide">{chunks}</a>,
+  b: chunks => <b key="b">{chunks}</b>,
+})
+```
+
+Messages with tags return an array, which React renders directly.
+
+### What compile writes
+
+| File | Holds |
+| --- | --- |
+| `i18n.ts` | Types, `i18nmd`, and top-level tokens. |
+| `<division>.ts` | One division's source-language messages. |
+| `language.mjs` | The current language and loaders, without messages. |
+| `languages/<code>.mjs` | Every message in one other language. |
+| `runtime.mjs` | The formatter, which uses the browser's `Intl` for plurals, numbers and dates. |
+
+Commit these or generate them in your build; compile removes files it generated earlier but no longer writes. `--eager` puts every message and language in `i18n.ts` instead, for servers, tests and small apps. `--target js` writes the same files as JavaScript, `--target json` writes one JSON file of message text, and `--skip <division>` leaves out divisions another program uses.
+
+### Errors at runtime
+
+An unknown token or a missing value never crashes the page. The runtime logs it and shows the token name or `{placeholder}` instead. A token from a division the page never imported says which import to add.
+
+## Extracting strings from your code
+
+```sh
+npx i18nmd extract src --in-place                                   # everything → translations/
+npx i18nmd extract src/account src/routes.tsx --out translations/account --in-place
+```
+
+`extract` reads JavaScript and TypeScript, with or without JSX, and moves these into the source language file:
+
+- JSX text, keeping each sentence whole. Values inside a sentence become named placeholders: `{formatLength(kerf)}` becomes `{kerf}`, and `{items.length}` becomes `{itemsCount}`.
+- Inline elements such as `<b>`, `<a href>` and `<Link to>`, which become tags.
+- Wording chosen in code: `{busy ? "Saving…" : "Save"}` becomes two messages.
+- Visible attributes: `alt`, `title`, `placeholder`, `label`, `aria-label`, `aria-description`.
+- Any string marked `/* i18n */`, or `/* i18n:token_name */` to choose its token.
+
+It leaves alone numbers, symbols and text without letters, and anything it can't convert safely; those are listed with their file and line. It also flags counts that should be plurals and wording built in code that should become an ICU `select`.
+
+Token names come from the words of the message, such as `welcome_back`, and never change when you edit the text. Running extract again keeps every token and translation, and only adds new strings. Without `--in-place` it writes converted copies to `--dest` (default `.i18n/src`) and leaves your sources alone. `--out translations/<division>` extracts into a division.
+
+The extractor handles the mechanical part. [PROMPT.md](PROMPT.md) is a prompt for a coding agent to do the rest: strings in plain `.ts` files and objects, sentences built in code, and checking every screen.
+
+## Translating with an LLM
+
+```sh
+npx i18nmd --add french               # also: Français, fr, pt-BR, "brazilian portuguese", klingon
+npx i18nmd --add pirate               # anything unrecognized becomes a custom style
+npx i18nmd --top 10                   # the 10 most widely spoken languages (i18nmd languages lists them)
+npx i18nmd translate                  # fill every missing or outdated translation
+npx i18nmd translate --only fr,de --dry-run
+```
+
+Set one of these:
+
+```sh
+export ANTHROPIC_API_KEY=…                        # Claude
+export OPENAI_API_KEY=… OPENAI_BASE_URL=…         # OpenAI or any compatible API
+export I18NMD_BASE_URL=… I18NMD_API_KEY=… I18NMD_MODEL=…   # overrides both
+```
+
+The provider is detected from the URL or key; `--provider`, `--base-url`, `--model` and `--batch` override it per run.
+
+Messages go in batches, each with its context line, existing translations as a glossary, and any earlier translation of a changed message. Every reply is checked like a hand-written translation. A message that fails is retried once with the error, and anything still failing is reported and falls back to the source language. Progress is saved after every batch, so an interrupted run loses nothing.
+
+## Keeping translations current
+
+```sh
+npx i18nmd status
+```
+
+```
+English (en): 1847 tokens, source
+Français (fr): 1790/1847 done, 40 missing, 17 stale
+```
+
+A translation is **stale** when its source text changed after it was written. Edit the translation and i18nmd counts it as updated; there are no markers to remove. `translate` fills missing and stale translations.
+
+| Command | Does |
+| --- | --- |
+| `status` | Progress per language and division. |
+| `check` | Validates every file. `--strict` also fails on anything missing or stale, for CI before a release. `--in src` checks your code imports the divisions it calls and lists tokens no code calls. |
+| `sync` | Updates `i18nmd.lock.json` and removes tokens the source no longer has from other languages. |
+| `rename <old> <new> --in src` | Renames a token in every language, the lock, and the calls in your code. |
+| `join --out all.md` | Writes every language into one Markdown file, to review side by side or hand to an LLM. |
+| `split all.md --out translations` | Splits a joined file back into language files. |
+
+Commands find `translations/`, `i18n/`, `locales/` or the current directory on their own; pass a path or `--dir` for anywhere else. Every command also accepts a joined file in place of a directory.
+
+## Python
+
+```sh
+npx i18nmd compile translations/server --target python --out app/i18n
+```
+
+```python
+from app.i18n.i18n import i18nmd, template, LANGS
+
+i18nmd("server.parts", "de", n=3)   # "3 Teile"
+```
+
+The Python module has no dependencies. It formats placeholders, plurals, ordinals, selects and numbers, with plural rules taken from your Node.js's `Intl` at compile time. `template(token, language)` returns the message with placeholders shown as `{name}`. `import-python <module.py> --out translations` converts an existing literal Python translation table.
+
+## Other formats and libraries
+
+```sh
+npx i18nmd import locales/*/translation.json --from i18next
+npx i18nmd import lang/en.json lang/fr.json --from formatjs
+npx i18nmd export --to next-intl --out messages      # messages/fr.json
+npx i18nmd export --to formatjs --out lang           # lang/fr.json, for react-intl
+npx i18nmd export --to i18next --out locales         # locales/fr/translation.json
+```
+
+FormatJS and next-intl already use ICU, so conversion is lossless, and FormatJS descriptions become context lines. For i18next, `{{name}}` becomes `{name}`, plural suffixes become ICU plurals, and nested keys become dotted tokens. Messages i18next can't express are kept as ICU strings for the i18next-icu plugin, with a warning. You can edit in i18nmd and ship whatever your app already loads.
+
+## Command reference
+
+| Command | |
+| --- | --- |
+| `extract <src…>` | `--in-place`, `--out translations/<division>`, `--source en`, `--runtime src/i18n/i18n`, `--dest .i18n/src`, `--locale-expr locale` (calls use `i18nmd.in(locale)`) |
+| `compile` | `--out src/i18n`, `--target ts\|js\|json\|python`, `--eager`, `--skip <division,…>` |
+| `--add <language>`, `--top <n>`, `translate` | `--only fr,de`, `--dry-run`, `--provider`, `--base-url`, `--model`, `--batch 40` |
+| `status`, `check`, `sync` | `--strict`, `--in src`, `--fix`, `--skip` |
+| `rename <old> <new>` | `--in src` |
+| `join`, `split` | `--out` |
+| `import`, `export`, `import-python` | `--from`, `--to`, `--out` |
+| `languages` | The ranked list `--top` uses. |
+
+Every command takes `--dir`, and `--source` to override the source language recorded in the lock. `npx i18nmd --help` lists everything.
+
+## Limits in 0.1
+
+- Not yet on npm; install from GitHub as above.
+- The extractor reads JavaScript and TypeScript. Strings in object properties (`{ label: "Save" }`) and plain `.ts` files need `/* i18n */` or the extraction prompt.
+- Switching language loads that whole language at once, not per division.
+- The Python target ignores tags and formats numbers without locale grouping; dates are passed through as given.
+
+## Development
+
+```sh
+npm ci --ignore-scripts
+npm test
+```
+
+The tests use a local stand-in for both LLM APIs, so they need no keys and make no network calls.
+
+## License
+
+MIT

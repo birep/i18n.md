@@ -1,0 +1,55 @@
+{
+  "name": "i18nmd",
+  "version": "0.1.0",
+  "description": "Interface strings in Markdown, one file per language. A compiler checks every language and generates typed code your app imports.",
+  "author": "Liko Labs (https://likolabs.com)",
+  "type": "module",
+  "bin": {
+    "i18nmd": "./bin/i18nmd.mjs"
+  },
+  "exports": {
+    ".": "./lib/index.mjs",
+    "./runtime": "./lib/runtime.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "scripts/python_catalog.py",
+    "README.md",
+    "LICENSE",
+    "PROMPT.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@babel/parser": "7.29.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/birep/i18n.md.git"
+  },
+  "homepage": "https://i18n.md",
+  "bugs": {
+    "url": "https://github.com/birep/i18n.md/issues"
+  },
+  "keywords": [
+    "i18n",
+    "l10n",
+    "internationalization",
+    "localization",
+    "translation",
+    "icu",
+    "messageformat",
+    "markdown",
+    "react",
+    "typescript",
+    "llm"
+  ],
+  "license": "MIT"
+}
