@@ -19,6 +19,7 @@
     "lib",
     "scripts/python_catalog.py",
     "README.md",
+    "README.haw.md",
     "LICENSE",
     "PROMPT.md",
     "CHANGELOG.md"

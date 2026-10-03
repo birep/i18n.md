@@ -1,6 +1,6 @@
 # i18n.md
 
-**[Try the live demo at i18n.md](https://i18n.md)** · Made by **[Liko Labs](https://likolabs.com)** in Hilo, Hawaiʻi
+**[Try the live demo at i18n.md](https://i18n.md)** · Made by **[Liko Labs](https://likolabs.com)** in Hilo, Hawaiʻi · [ʻŌlelo Hawaiʻi](README.haw.md)
 
 Keep your interface strings in Markdown, for apps and for plain HTML sites: one file per language, readable and editable by translators, reviewers and LLMs. A compiler checks every language and generates typed code your app imports.
 
@@ -36,7 +36,7 @@ The files are the source of truth. They diff in pull requests, and anyone can ha
 - [Python](#python)
 - [Other formats and libraries](#other-formats-and-libraries)
 - [Command reference](#command-reference)
-- [Limits in 0.1](#limits-in-01)
+- [Current limits](#current-limits)
 
 ## Install
 
@@ -369,7 +369,7 @@ from app.i18n.i18n import i18nmd, template, LANGS
 i18nmd("server.parts", "de", n=3)   # "3 Teile"
 ```
 
-The Python module has no dependencies. It formats placeholders, plurals, ordinals, selects and numbers, with plural rules taken from your Node.js's `Intl` at compile time. `template(token, language)` returns the message with placeholders shown as `{name}`. `import-python <module.py> --out translations` converts an existing literal Python translation table.
+The Python module has no dependencies. It formats placeholders, plurals, ordinals, selects and numbers, with each language's plural rules and number style (`1.234,5` in German, `12,34,567` in Hindi) taken from your Node.js's `Intl` at compile time. `template(token, language)` returns the message with placeholders shown as `{name}`. `import-python <module.py> --out translations` converts an existing literal Python translation table.
 
 ## Other formats and libraries
 
@@ -399,11 +399,11 @@ FormatJS and next-intl already use ICU, so conversion is lossless, and FormatJS 
 
 Every command takes `--dir`, and `--source` to override the source language recorded in the lock. `npx i18nmd --help` lists everything.
 
-## Limits in 0.1
+## Current limits
 
 - The extractor reads HTML, JavaScript and TypeScript. Strings in object properties (`{ label: "Save" }`) and plain `.ts` files need `/* i18n */` or the extraction prompt.
 - Switching language loads that whole language at once, not per division.
-- The Python target ignores tags and formats numbers without locale grouping; dates are passed through as given.
+- The Python target writes dates as given, and a tag's text without its markup unless you pass a function for it.
 
 ## Development
 

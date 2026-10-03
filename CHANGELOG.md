@@ -2,6 +2,8 @@
 
 ## 0.2.1
 
+- **Python numbers follow each language:** grouping and decimal marks, Indian-style grouping, minus signs and percent signs come from `Intl` at compile time, so `{n, number}` and `#` match the JavaScript runtime.
+- **README in ʻōlelo Hawaiʻi:** [README.haw.md](README.haw.md).
 - **Fixed:** a translation edited before its source text changed was counted as updated for the new text, so the change went unnoticed. Now an edit only counts once `sync` (or `status`) has seen the source change; if both changed in between, the translation is marked stale for review. Existing lock files keep working.
 
 ## 0.2.0

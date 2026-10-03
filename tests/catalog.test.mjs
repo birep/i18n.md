@@ -150,3 +150,23 @@ print(template("chat.parts", "en"), sorted(TOKENS))`], { cwd: dir, encoding: 'ut
     assert.deepEqual(run.stdout.replace(/\n$/, '').split('\n'), ['no parts for Al, 22nd', '1 part for Al, 112th', '22 części dla , 1', '25 częściM dla A, 1', "Alpha isn't ", "{n} for {who}, {k} ['chat.parts', 'pick']"]);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('the Python target writes numbers the way each language does', async t => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('python3', ['--version']).status !== 0) return t.skip('python3 is not installed');
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const languages = ['en', 'de', 'fr', 'es', 'hi'];
+  const text = '{v, number} | {p, number, percent} | {c, plural, other {# x}}';
+  const compiled = { title: 'T', source: 'en', syntax: 'icu', languages: Object.fromEntries(languages.map(l => [l, l])), messages: [{ key: 'n', context: '', optional: [], translations: Object.fromEntries(languages.map(l => [l, text])) }] };
+  const cases = [[1234567.891, 0.256, 12345], [1234, 0.5, 1], [-9876.5, -0.07, 1000000]];
+  const dir = await mkdtemp(path.join(tmpdir(), 'i18nmd-py-numbers-'));
+  try {
+    await writeFile(path.join(dir, 'i18n.py'), generateModule(compiled, 'python'));
+    const run = spawnSync('python3', ['-c', `from i18n import i18nmd\nfor l in ${JSON.stringify(languages)}:\n  for v, p, c in ${JSON.stringify(cases)}: print(i18nmd("n", l, v=v, p=p, c=c))`], { cwd: dir, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const expected = languages.flatMap(l => cases.map(([v, p, c]) => `${new Intl.NumberFormat(l).format(v)} | ${new Intl.NumberFormat(l, { style: 'percent' }).format(p)} | ${new Intl.NumberFormat(l).format(c)} x`));
+    assert.deepEqual(run.stdout.replace(/\n$/, '').split('\n'), expected);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
