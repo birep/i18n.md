@@ -1,6 +1,6 @@
 # i18n.md
 
-Keep your interface strings in Markdown: one file per language, readable and editable by translators, reviewers and LLMs. A compiler checks every language and generates typed code your app imports.
+Keep your interface strings in Markdown, for apps and for plain HTML sites: one file per language, readable and editable by translators, reviewers and LLMs. A compiler checks every language and generates typed code your app imports.
 
 ````md
 # Français
@@ -22,6 +22,7 @@ The files are the source of truth. They diff in pull requests, and anyone can ha
 
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Static websites](#static-websites)
 - [Language files](#language-files)
 - [Divisions](#divisions)
 - [Using the generated code](#using-the-generated-code)
@@ -96,6 +97,42 @@ export function LanguagePicker() {
 ```
 
 **5. Keep it current.** After editing source text, `npx i18nmd status` shows what needs translating and `npx i18nmd translate` fills it in.
+
+## Static websites
+
+A site made of HTML pages needs no JavaScript at all. i18nmd writes a copy of each page in each language:
+
+```sh
+npx i18nmd extract site --in-place                            # site/*.html → translations/i18n-en.md
+npx i18nmd --add haw                                          # or write translations/i18n-haw.md yourself
+npx i18nmd render site --out dist --url https://example.com   # dist/ and dist/haw/
+```
+
+`extract` marks each piece of text with a `data-i18n` attribute and leaves the English where it is, so the page still opens and edits as before:
+
+```html
+<h1 data-i18n="from_first_leaf_to_full_grown">From first leaf to <em class="red">full grown.</em></h1>
+```
+
+The message keeps the sentence whole, with its inline markup as tags: `From first leaf to <em>full grown.</em>`. Translators move the tag; its class and other attributes stay in the page. Extract also takes the page `<title>`, the description and link-preview `<meta>` tags, `alt`, `title`, `placeholder` and `aria-label` attributes, and strings in inline scripts marked `/* i18n */`:
+
+```js
+statusEl.textContent = /* i18n */ 'Sending…';
+```
+
+It skips addresses such as `example.com`, and anything inside an element with `translate="no"`, the standard attribute for names and code. It lists text it can't place, such as words beside a block element, and script strings that look like text people read.
+
+The English lives in your HTML. Edit a page, run `extract` again, and the source language file follows; the other languages' versions of that text become stale for `translate` to update.
+
+`render` writes the source language where the pages are and every other language in a directory named for it, `/haw/`, copying everything else in the site alongside. Each copy gets:
+
+- the translated text, with untranslated text left in the source language
+- `<html lang>`, and `dir="rtl"` for right-to-left languages
+- `<link rel="alternate" hreflang>` to every language's copy, so search engines index each one
+- with `--url`, `og:url` and canonical links pointing at that copy
+- relative links adjusted for the language directory
+
+Put `<nav data-i18n-languages></nav>` anywhere on a page, and render fills it with a link to each language, named in that language. Deploy `dist/`.
 
 ## Language files
 
@@ -346,6 +383,7 @@ FormatJS and next-intl already use ICU, so conversion is lossless, and FormatJS 
 
 | Command | |
 | --- | --- |
+| `render <site>` | `--out dist`, `--url https://example.com` |
 | `extract <src…>` | `--in-place`, `--out translations/<division>`, `--source en`, `--runtime src/i18n/i18n`, `--dest .i18n/src`, `--locale-expr locale` (calls use `i18nmd.in(locale)`) |
 | `compile` | `--out src/i18n`, `--target ts\|js\|json\|python`, `--eager`, `--skip <division,…>` |
 | `--add <language>`, `--top <n>`, `translate` | `--only fr,de`, `--dry-run`, `--provider`, `--base-url`, `--model`, `--batch 40` |
@@ -359,7 +397,7 @@ Every command takes `--dir`, and `--source` to override the source language reco
 
 ## Limits in 0.1
 
-- The extractor reads JavaScript and TypeScript. Strings in object properties (`{ label: "Save" }`) and plain `.ts` files need `/* i18n */` or the extraction prompt.
+- The extractor reads HTML, JavaScript and TypeScript. Strings in object properties (`{ label: "Save" }`) and plain `.ts` files need `/* i18n */` or the extraction prompt.
 - Switching language loads that whole language at once, not per division.
 - The Python target ignores tags and formats numbers without locale grouping; dates are passed through as given.
 

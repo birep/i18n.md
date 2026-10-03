@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { parseCatalog, serializeCatalog, parseLanguageFiles, languageFromFilename, renameToken, textOf, divisionOf, namespaceFor, accessorFor } from '../lib/catalog.mjs';
 import { generateModule, generateModules, divisionFile, runtimeTypes } from '../lib/compiler.mjs';
 import { extractSource, missingDivisionImports } from '../lib/extractor.mjs';
+import { extractHtml, renderHtml } from '../lib/html.mjs';
 import { lockPathFor, findLock, namedRoot, readLock, serializeLock, report, syncLock, markCurrent } from '../lib/lock.mjs';
 import { resolveLanguage, topLanguages, RANKED } from '../lib/languages.mjs';
 import { llmConfig, translateLanguage } from '../lib/llm.mjs';
@@ -32,6 +33,8 @@ Keep files in shape
                                            One Markdown file with every language, and back.
 
 Build
+  render <site> [--out dist] [--url https://example.com]
+                                           Static HTML pages, one copy per language (/haw/…).
   compile [--out src/i18n] [--target ts|js|json|python] [--skip division,...] [--eager]
   extract <src...> [--out translations/<division>] [--in-place] [--runtime src/i18n/i18n]
           [--source en] [--locale-expr locale]
@@ -60,14 +63,16 @@ function python(args) {
   });
 }
 
-async function filesAt(input) {
-  if (!(await stat(input)).isDirectory()) return /\.(?:[cm]?[jt]sx?)$/.test(input) ? [input] : [];
+// Source files under input; html: also .html pages (for extract).
+async function filesAt(input, { html = false } = {}) {
+  const wanted = html ? /\.(?:[cm]?[jt]sx?|html?)$/ : /\.(?:[cm]?[jt]sx?)$/;
+  if (!(await stat(input)).isDirectory()) return wanted.test(input) ? [input] : [];
   const files = [];
   for (const entry of (await readdir(input, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name.startsWith('.') || ['node_modules', 'dist', 'build', 'vendor', 'coverage'].includes(entry.name)) continue;
     const file = path.join(input, entry.name);
-    if (entry.isDirectory()) files.push(...await filesAt(file));
-    else if (entry.isFile() && /\.(?:[cm]?[jt]sx?)$/.test(file) && !/\.(test|spec)\.[jt]sx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file)) files.push(file);
+    if (entry.isDirectory()) files.push(...await filesAt(file, { html }));
+    else if (entry.isFile() && wanted.test(file) && !/\.(test|spec)\.[jt]sx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file)) files.push(file);
   }
   return files;
 }
@@ -218,7 +223,7 @@ async function main() {
   if (!command || ['help', '--help', '-h'].includes(command)) { console.log(help); return; }
   if (['--version', '-v', 'version'].includes(command)) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); return; }
   const aliases = { locale: 'source', language: 'locale-expr' };
-  const valued = /^(skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|only|dir)$/;
+  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|only|dir)$/;
   const options = Object.create(null), positional = [];
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
@@ -358,6 +363,45 @@ async function main() {
     const divisions = Object.keys(files).filter(n => !/^(?:i18n|language|runtime)\.|^languages\//.test(n) && !n.endsWith('.d.mts')).length;
     console.log(`Compiled ${plural(catalog.messages.length, 'token')} into ${options.out}: ${plural(divisions, 'division module')}, ${plural(Object.keys(catalog.languages).length - 1, 'language chunk')}${options.eager ? ' (eager)' : ''}.`); return;
   }
+  if (command === 'render') {
+    // Static pages, one copy per language: the source language where the pages
+    // are, every other language under its code (/haw/), and every other file copied.
+    const site = one();
+    if (!site || !(await isDirectory(site))) throw new Error('Usage: i18nmd render <site directory> [--out dist] [--url https://example.com]');
+    const out = path.resolve(options.out || 'dist');
+    const root = path.resolve(site);
+    if (out === root) throw new Error('Render into a directory other than the site itself.');
+    const ws = await open(options.dir, options); ws.warn();
+    const { catalog } = ws;
+    const base = (options.url || '').replace(/\/+$/, '');
+    if (base && !/^https?:\/\//.test(base)) throw new Error('--url needs a full address, such as https://example.com.');
+    const codes = Object.keys(catalog.languages);
+    const tables = Object.fromEntries(codes.map(code => [code, Object.fromEntries(catalog.messages.filter(m => Object.hasOwn(m.translations, code)).map(m => [m.key, m.translations[code]]))]));
+    const files = [];
+    const walk = async dir => {
+      for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+        const file = path.join(dir, entry.name);
+        if (entry.name.startsWith('.') || entry.name === 'node_modules' || file === out) continue;
+        if (entry.isDirectory()) await walk(file); else if (entry.isFile()) files.push(path.relative(root, file).split(path.sep).join('/'));
+      }
+    };
+    await walk(root);
+    let pages = 0;
+    for (const file of files) {
+      if (!/\.html?$/.test(file)) { await mkdir(path.dirname(path.join(out, file)), { recursive: true }); await copyFile(path.join(root, file), path.join(out, file)); continue; }
+      const html = await readFile(path.join(root, file), 'utf8');
+      const address = code => `${base}/${code === catalog.source ? '' : code + '/'}${file.replace(/(^|\/)index\.html?$/, '$1')}`;
+      const urls = Object.fromEntries(codes.map(code => [code, address(code)]));
+      for (const code of codes) {
+        const target = code === catalog.source ? file : `${code}/${file}`;
+        const relative = code === catalog.source ? '' : path.posix.relative(path.posix.dirname(target), path.posix.dirname(file)) + '/';
+        await save(path.join(out, target), renderHtml(html, { language: code, source: catalog.source, messages: tables[code], pages: urls, languages: catalog.languages, relative, absolute: !!base }));
+        pages++;
+      }
+    }
+    for (const row of ws.rows()) if (row.missing.length || row.stale.length) console.warn(`i18nmd: ${summary(row)}; untranslated text stays in ${catalog.languages[catalog.source]}.`);
+    console.log(`Rendered ${plural(pages, 'page')} in ${plural(codes.length, 'language')} into ${path.relative(process.cwd(), out) || '.'}.`); return;
+  }
   if (command === 'join') {
     if (!options.out || !/\.md$/.test(options.out)) throw new Error('Choose the joined Markdown file with --out, e.g. --out translations.md.');
     const ws = await open(one(), options);
@@ -495,8 +539,8 @@ async function main() {
     const outDir = path.dirname(sourceFile);
     const namespace = namespaceFor(await divisionPrefix(outDir, (await findLock(outDir)).file));
     if (languageFromFilename(sourceFile) !== locale) throw new Error('The output filename must match --source.');
-    const files = [...new Set((await Promise.all(positional.map(filesAt))).flat())];
-    if (!files.length) throw new Error('No JavaScript or TypeScript source files found.');
+    const files = [...new Set((await Promise.all(positional.map(input => filesAt(input, { html: true })))).flat())];
+    if (!files.length) throw new Error('No HTML, JavaScript or TypeScript files found.');
     // The deepest directory holding every input; converted copies keep their paths below it.
     const dirs = await Promise.all(positional.map(async input => (await isDirectory(input)) ? path.resolve(input) : path.dirname(path.resolve(input))));
     let root = dirs[0];
@@ -513,21 +557,26 @@ async function main() {
     // Existing tokens are always kept, so extraction can be repeated as code changes.
     let catalog = await exists(sourceFile) ? parseCatalog(await readFile(sourceFile, 'utf8'), { filename: sourceFile }) : undefined;
     const outputs = [];
-    let replacements = 0;
+    let replacements = 0, updated = 0;
     for (const file of files) {
       const relative = path.relative(root, path.resolve(file));
       const output = path.join(destination, relative);
       let importPath = path.relative(path.dirname(output), runtime).split(path.sep).join('/');
       if (!importPath.startsWith('.')) importPath = './' + importPath;
-      const result = extractSource(await readFile(file, 'utf8'), { filename: path.relative(process.cwd(), file), locale, languageExpression: options['locale-expr'], existing: catalog, importPath, namespace });
-      catalog = result.catalog; replacements += result.replacements;
+      const text = await readFile(file, 'utf8'), filename = path.relative(process.cwd(), file);
+      const result = /\.html?$/.test(file)
+        ? extractHtml(text, { filename, locale, existing: catalog, namespace })
+        : extractSource(text, { filename, locale, languageExpression: options['locale-expr'], existing: catalog, importPath, namespace });
+      catalog = result.catalog; replacements += result.replacements; updated += result.updated || 0;
       result.diagnostics.forEach(message => console.warn(message));
       if (result.replacements) outputs.push([output, result.source]);
     }
     // The lock marks the top of the translations tree, so divisions keep their names.
     const lockFile = (await findLock(outDir)).file;
     if (!(await exists(lockFile))) await save(lockFile, serializeLock({ source: locale, translations: {} }));
-    if (!replacements) { console.log(`Nothing new to extract from ${plural(files.length, 'file')}. Mark other display strings with /* i18n */.`); return; }
+    if (!replacements && !updated) { console.log(`Nothing new to extract from ${plural(files.length, 'file')}. Mark other display strings with /* i18n */.`); return; }
+    // An HTML page holds its own English: an edited sentence updates the source file.
+    if (!replacements) { await save(sourceFile, serializeCatalog(catalog, { locale })); console.log(`Updated ${plural(updated, 'string')} in ${sourceFile} from the pages' English; run i18nmd status to see what to translate.`); return; }
     const markdown = serializeCatalog(catalog, { locale });
     for (const [file, text] of outputs) await save(file, text);
     await save(sourceFile, markdown);

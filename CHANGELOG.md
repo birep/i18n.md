@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- **Static websites.** `extract` reads `.html` pages: it marks each sentence, the title and description, image text and form labels with a `data-i18n` attribute and leaves the English in place, and takes `/* i18n */` strings from inline scripts. `render <site> --out dist --url …` writes a copy of every page in every language (`/haw/…`) with `lang`, `hreflang` links, `og:url`, adjusted relative links, and a language switcher wherever a page has `<nav data-i18n-languages>`. No JavaScript needed.
+
 ## 0.1.1
 
 - Published to npm as `@likolabs/i18nmd` (`npm install --save-dev @likolabs/i18nmd`); the command is still `i18nmd`. npm 12 refuses GitHub and tarball URLs by default, so the 0.1.0 install instructions failed there.

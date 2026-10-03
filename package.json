@@ -1,6 +1,6 @@
 {
   "name": "@likolabs/i18nmd",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Interface strings in Markdown, one file per language. A compiler checks every language and generates typed code your app imports.",
   "author": "Liko Labs (https://likolabs.com)",
   "type": "module",
@@ -31,7 +31,8 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@babel/parser": "7.29.0"
+    "@babel/parser": "7.29.0",
+    "parse5": "^8.0.1"
   },
   "repository": {
     "type": "git",

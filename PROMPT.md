@@ -11,6 +11,8 @@ Give these instructions to a coding agent in the application's repository. They 
    npx i18nmd extract src/components --out translations/ui --in-place
    ```
 
+   For a site of plain HTML pages, extract the pages (`npx i18nmd extract site --in-place`) and build each language with `npx i18nmd render site --out dist`.
+
 3. **Review the extractor's work.** Read the diff. Then work through every diagnostic it printed:
    - *looks like a count*: make the message an ICU plural, `{count, plural, one {# item} other {# items}}`.
    - *text chosen in code*: move the wording into the message as an ICU `select` or plural, instead of passing English through a placeholder.
