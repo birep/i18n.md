@@ -2,7 +2,8 @@
 
 ## 0.1.1
 
-- Published to npm: `npm install --save-dev i18nmd`. npm 12 refuses GitHub and tarball URLs by default, so the 0.1.0 install instructions failed there.
+- Published to npm as `@likolabs/i18nmd` (`npm install --save-dev @likolabs/i18nmd`); the command is still `i18nmd`. npm 12 refuses GitHub and tarball URLs by default, so the 0.1.0 install instructions failed there.
+- The `i18nmd` command is kept when publishing; npm 12 dropped the `./bin/…` form.
 
 ## 0.1.0
 

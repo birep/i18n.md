@@ -38,7 +38,7 @@ The files are the source of truth. They diff in pull requests, and anyone can ha
 i18nmd needs Node.js 22 or newer.
 
 ```sh
-npm install --save-dev i18nmd
+npm install --save-dev @likolabs/i18nmd
 npx i18nmd --version
 ```
 

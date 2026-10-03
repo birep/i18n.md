@@ -1,9 +1,12 @@
 {
-  "name": "i18nmd",
+  "name": "@likolabs/i18nmd",
   "version": "0.1.1",
   "description": "Interface strings in Markdown, one file per language. A compiler checks every language and generates typed code your app imports.",
   "author": "Liko Labs (https://likolabs.com)",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "i18nmd": "bin/i18nmd.mjs"
   },
