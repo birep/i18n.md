@@ -6,6 +6,7 @@
 - **Currencies in Python:** `{n, number, ::currency/EUR}` now writes the currency as `Intl` does.
 - **App formatters:** `{len, length}` passes a value to a function the app supplies, for text ICU can't write, such as fractional inches. Declare the names in `i18nmd.lock.json` (`"formatters": ["length"]`), then `registerFormatter` (generated JavaScript), `createI18n(catalog, { formatters })`, or `register_formatter` (Python).
 - **`has(token)`:** `i18nmd.has(token)`, `i18nmd.<division>.has(token)` and Python's `has(token)` say whether a token is compiled. A division can no longer be called `has`.
+- **Fixed:** `import --out translations/<division>` wrote its own lock inside the division with unprefixed tokens, so `status` from the root never saw its translations. It now records them in the tree's lock.
 - **`import --merge`** adds source-language messages to an existing source file without touching other languages or the lock. The README describes how to translate sentences stored in a database this way.
 
 ## 0.2.1

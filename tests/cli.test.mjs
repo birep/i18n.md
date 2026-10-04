@@ -230,3 +230,17 @@ test('import --merge adds source messages to a division without touching transla
     assert.match(run('import', 'sentences.json', '--from', 'formatjs', '--merge', '--out', 'translations/procedures').stdout, /already has every message/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('import into a division records it in the tree\'s lock', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-import-division-'));
+  try {
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+    await writeFile(path.join(root, 'en.json'), JSON.stringify({ sand: 'Sand it.' }));
+    await writeFile(path.join(root, 'fr.json'), JSON.stringify({ sand: 'Poncez.' }));
+    assert.equal(run('import', 'en.json', 'fr.json', '--from', 'formatjs', '--out', 'translations/procedures').status, 0);
+    assert.deepEqual(await readdir(path.join(root, 'translations/procedures')), ['i18n-en.md', 'i18n-fr.md']);
+    assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(root, 'translations/i18nmd.lock.json'), 'utf8')).translations.fr), ['procedures.sand']);
+    await writeFile(path.join(root, 'translations/procedures/i18n-en.md'), (await readFile(path.join(root, 'translations/procedures/i18n-en.md'), 'utf8')).replace('Sand it.', 'Sand it smooth.'));
+    assert.match(run('status').stdout, /stale: procedures\.sand/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

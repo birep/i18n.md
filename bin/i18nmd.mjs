@@ -531,9 +531,10 @@ async function main() {
       if (await exists(file)) throw new Error(`${file} exists; import into an empty directory.`);
     }
     for (const locale of Object.keys(languages)) await save(path.join(out, `i18n-${locale}.md`), serializeCatalog(catalog, { locale, allowIncomplete: true }));
-    const lock = { source, translations: {} };
-    syncLock(catalog, lock);
-    await save(lockPathFor(out, true), serializeLock(lock));
+    // The lock that covers out, so a division shares the tree's lock and token names.
+    const ws = await open(out, { source });
+    syncLock(ws.catalog, ws.lock, { partial: ws.partial });
+    await ws.saveLock();
     [...warnings, ...(catalog.warnings || [])].forEach(w => console.warn(`i18nmd: ${w}`));
     console.log(`Imported ${plural(messages.length, 'token')} in ${plural(Object.keys(languages).length, 'language')} into ${out}.`); return;
   }
