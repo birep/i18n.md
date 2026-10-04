@@ -15,7 +15,8 @@ import { importMessages, exportMessages, FORMATS } from '../lib/interop.mjs';
 const help = `i18nmd — one Markdown file per language
 
 Translate with an LLM
-  i18nmd --add french [--add pirate ...]   Create and translate new languages.
+  i18nmd --add french [--add pirate ...] [dir]
+                                           Create and translate new languages.
   i18nmd --top 10                          Add the 10 most widely spoken languages.
   i18nmd translate [--only fr,de]          Fill missing and outdated translations.
       Endpoint: I18NMD_BASE_URL + I18NMD_API_KEY (+ I18NMD_MODEL), or ANTHROPIC_API_KEY,
@@ -25,6 +26,9 @@ Translate with an LLM
 Keep files in shape
   status                                   Progress per language: done, missing, stale.
   sync                                     Update i18nmd.lock.json; drop tokens the source removed.
+  accept <token|prefix.*...> [--only fr,de]
+                                           Record reviewed translations as current for their
+                                           source text, such as ones edited before a sync.
   check [--strict] [--in src [--fix]]      Validate; --strict fails on anything missing or stale;
                                            --in checks code imports each division it calls and
                                            lists tokens it never calls (--skip division,...).
@@ -35,7 +39,8 @@ Keep files in shape
 Build
   render <site> [--out dist] [--url https://example.com]
                                            Static HTML pages, one copy per language (/haw/…).
-  compile [--out src/i18n] [--target ts|js|json|python] [--skip division,...] [--eager]
+  compile [--out src/i18n] [--target ts|js|json|python] [--only division,...|--skip division,...]
+          [--eager]
   extract <src...> [--out translations/<division>] [--in-place] [--runtime src/i18n/i18n]
           [--source en] [--locale-expr locale]
 
@@ -246,7 +251,13 @@ async function main() {
   }
   if (command === 'add' || command === 'top') {
     if (!positional.length) throw new Error(command === 'add' ? 'Name a language: i18nmd --add french' : 'Give a number: i18nmd --top 10');
-    const ws = await open(undefined, options); ws.warn();
+    // A path among the languages picks the translations or division to work on,
+    // as translate's does: i18nmd --add zh translations/site.
+    const paths = [];
+    for (const arg of [...positional]) if (/[\\/]|\.md$/.test(arg) || await isDirectory(arg)) { paths.push(arg); positional.splice(positional.indexOf(arg), 1); }
+    if (paths.length > 1) throw new Error(`${command === 'add' ? '--add' : '--top'} takes at most one path: ${paths.join(', ')}.`);
+    if (!positional.length) throw new Error(command === 'add' ? 'Name a language: i18nmd --add french' : 'Give a number: i18nmd --top 10');
+    const ws = await open(paths[0], options); ws.warn();
     const targets = command === 'top' ? topLanguages(Number(positional[0])).map(resolveLanguage) : positional.map(resolveLanguage);
     await translate(ws, targets, options); return;
   }
@@ -329,13 +340,46 @@ async function main() {
     for (const row of ws.rows()) if (row.missing.length || row.stale.length) console.log(summary(row));
     return;
   }
+  if (command === 'accept') {
+    // Tokens, and optionally one directory or file to open: i18nmd accept ui.save ui.cancel.
+    const paths = [];
+    for (const arg of positional) if (/[\\/]|\.md$/.test(arg) || await isDirectory(arg)) paths.push(arg);
+    const tokens = positional.filter(arg => !paths.includes(arg));
+    if (paths.length > 1) throw new Error(`accept takes at most one path: ${paths.join(', ')}.`);
+    if (!tokens.length) throw new Error('Name the tokens to accept: i18nmd accept ui.save [ui.cancel ...] [--only fr]. A prefix such as ui.* accepts a whole division.');
+    const ws = await open(paths[0], options); ws.warn();
+    const { catalog, lock } = ws;
+    const languages = Object.keys(catalog.languages).filter(l => l !== catalog.source);
+    const only = options.only?.split(',').map(s => s.trim()).filter(Boolean);
+    for (const code of only || []) if (!languages.includes(code)) throw new Error(`No ${code} translations here; the languages are ${languages.join(', ')}.`);
+    let accepted = 0;
+    for (const token of tokens) {
+      const matches = catalog.messages.filter(m => token.endsWith('*') ? m.key.startsWith(token.slice(0, -1)) : m.key === token);
+      if (!matches.length) throw new Error(`No token ${token}.`);
+      for (const message of matches) for (const locale of only || languages) {
+        if (!Object.hasOwn(message.translations, locale)) {
+          if (message.invalid?.[locale] !== undefined) console.warn(`i18nmd: ${locale}: ${message.key} doesn't match the source's placeholders; fix it before accepting it.`);
+          continue;
+        }
+        markCurrent(catalog, lock, locale, message); accepted++;
+      }
+    }
+    await ws.saveLock();
+    console.log(`Accepted ${plural(accepted, 'translation')} as current in ${ws.lockFile}.`);
+    for (const row of ws.rows()) if (row.missing.length || row.stale.length) console.log(summary(row));
+    return;
+  }
   if (command === 'compile') {
     options.out ||= 'src/i18n';
     const ws = await open(one(), options); ws.warn({ missing: false });
-    // --skip leaves out divisions another program uses, such as server-only replies.
-    const skipped = (options.skip || '').split(',').map(d => d.trim().replace(/\/+$/, '')).filter(Boolean);
-    for (const division of skipped) if (!ws.catalog.divisions.some(d => d === division || d.startsWith(division + '/'))) throw new Error(`No division ${division} to skip.`);
-    const messages = ws.catalog.messages.filter(m => !skipped.some(d => m.division === d || m.division?.startsWith(d + '/')));
+    // --only compiles just the divisions this program uses (a server's replies);
+    // --skip leaves out divisions another program uses. "." is the top level.
+    if (options.only && options.skip) throw new Error('Use either --only or --skip.');
+    const list = value => (value || '').split(',').map(d => d.trim().replace(/\/+$/, '')).filter(Boolean).map(d => d === '.' ? '' : d);
+    const skipped = list(options.skip), kept = list(options.only);
+    const within = (division, d) => division === d || (d && division?.startsWith(d + '/'));
+    for (const division of [...skipped, ...kept]) if (!ws.catalog.divisions.some(d => within(d, division))) throw new Error(`No division ${division || '.'} ${options.only ? 'to compile' : 'to skip'}.`);
+    const messages = ws.catalog.messages.filter(m => options.only ? kept.some(d => within(m.division || '', d)) : !skipped.some(d => within(m.division || '', d)));
     // A language ships once it has a translation here; one only skipped divisions have stays out.
     const languages = Object.fromEntries(Object.entries(ws.catalog.languages).filter(([l]) => l === ws.catalog.source || messages.some(m => Object.hasOwn(m.translations, l))));
     const catalog = { ...ws.catalog, languages, messages };
@@ -348,7 +392,7 @@ async function main() {
       console.log(`Compiled ${plural(catalog.messages.length, 'token')} to ${path.join(options.out, filename)}.`); return;
     }
     const files = generateModules(catalog, { target, eager: !!options.eager });
-    files['runtime.mjs'] = '/* eslint-disable */\n' + await readFile(new URL('../lib/runtime.mjs', import.meta.url), 'utf8');
+    files['runtime.mjs'] = await readFile(new URL('../lib/runtime.mjs', import.meta.url), 'utf8');
     files['runtime.d.mts'] = runtimeTypes;
     // Files an earlier compile wrote that this one does not (a renamed division, a
     // removed language) would linger in the build; generated files say so on line 1.

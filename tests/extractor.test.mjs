@@ -83,7 +83,7 @@ test('names tokens from words, explains context, and flags counts', () => {
   const result = extractSource('<div><h1>Welcome back!</h1><img alt="Welcome back!" /><p>Welcome  back?</p><p>You have {count} items</p></div>', { filename: 'Home.tsx', locale: 'de' });
   assert.deepEqual(result.catalog.messages.map(m => m.key), ['welcome_back', 'welcome_back_2', 'you_have_items']);
   assert.equal(result.catalog.languages.de, 'Deutsch');
-  assert.match(result.catalog.messages[0].context, /^Text in <h1> \(Home.tsx:1\)$/);
+  assert.match(result.catalog.messages[0].context, /^Text in <h1> in Home.tsx$/);
   assert.match(result.diagnostics.join('\n'), /\{count\} looks like a count/);
 });
 test('finds and adds the division imports a file needs', async () => {
@@ -108,4 +108,51 @@ test('lists the tokens a file calls by name', async () => {
   const { used, dynamic } = missingDivisionImports('i18nmd.ui("a"); i18nmd.kb.faq("q"); i18nmd("kb.x"); i18nmd.in(l).ui("b"); i18nmd.ui(name); i18nmd("top")', options);
   assert.deepEqual([...used].sort(), ['kb.faq.q', 'kb.x', 'top', 'ui.a', 'ui.b']);
   assert.equal(dynamic, 1);
+});
+test('translate="no" content and addresses stay as written', () => {
+  const input = `export function Setup() {
+  return <section>
+    <p>Connect your agent to <code translate="no">https://example.com/mcp</code> in its settings.</p>
+    <pre translate="no">npx example add --name "Example tool"</pre>
+    <ol translate="no"><li>Open the app</li></ol>
+    <p>example.com</p>
+    <a title="hello@example.com" href="/x">Read the guide</a>
+  </section>;
+}`;
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['Connect your agent to {code} in its settings.', 'Read the guide']);
+  assert.match(result.source, /code: <code translate="no">https:\/\/example\.com\/mcp<\/code>/);
+  assert.match(result.source, /<pre translate="no">npx example add --name "Example tool"<\/pre>/);
+  assert.match(result.source, /<li>Open the app<\/li>/);
+  assert.match(result.source, /<p>example\.com<\/p>/);
+  assert.match(result.source, /title="hello@example\.com"/);
+});
+test('context names the component and the nearest heading or label, not a line', () => {
+  const input = `const Pitch = () => <section><h2>Bring your <em>own</em> agent</h2><p>Paired with any model.</p></section>;
+function Toolbar() { return <div aria-label="Cutting tools"><button>Rip cut</button></div>; }
+export function Form() { return <form><label>Board width</label><input placeholder="In inches" /></form>; }`;
+  const contexts = Object.fromEntries(extractSource(input, { filename: 'src/Landing.tsx' }).catalog.messages.map(m => [m.translations.en, m.context]));
+  assert.equal(contexts['Paired with any model.'], 'Text in <p> in Pitch, under the heading "Bring your own agent"');
+  assert.equal(contexts['Rip cut'], 'Text in <button> in Toolbar, in the part labelled "Cutting tools"');
+  assert.equal(contexts['In inches'], 'placeholder attribute of <input> in Form, beside the label "Board width"');
+});
+test('warns when one element\'s text becomes several messages that read as one sentence', () => {
+  const input = '<p>Want to see it? <button onClick={go}>Add your agent</button> or <button onClick={open}>browse</button> the gallery first.</p>';
+  const result = extractSource(input, { filename: 'Pitch.tsx' });
+  assert.match(result.diagnostics.join('\n'), /Pitch\.tsx:1: <p> became 3 messages around <button>.*"Want to see it\?" \| "or" \| "the gallery first\."/);
+  assert.doesNotMatch(extractSource('<div><p>One.</p><p>Two.</p></div>').diagnostics.join('\n'), /became/);
+});
+test('lists strings in object properties and arrays that look like interface text', () => {
+  const input = 'const TOOLS = [{ id: "miter", label: "Miter saw" }, { id: "rip", label: "Rip cut", icon: "Saw icon" }];\nconst CHIPS = ["Build a bookshelf", "a-b"];\nconst label = { title: /* i18n */ "Done already." };';
+  const diagnostics = extractSource(input, { filename: 'tools.ts' }).diagnostics.join('\n');
+  assert.match(diagnostics, /tools\.ts:1: "Miter saw" in the label property looks like text people read/);
+  assert.match(diagnostics, /"Rip cut"/);
+  assert.match(diagnostics, /tools\.ts:2: "Build a bookshelf" in an array/);
+  assert.doesNotMatch(diagnostics, /Saw icon|miter|a-b|Done already/);
+});
+test('the import goes with the other imports, or after leading comments', () => {
+  const header = '// Copyright Example.\n/* The landing page. */\n';
+  assert.equal(extractSource(header + 'export const A = () => <p>Hi</p>;\n').source, header.slice(0, -1) + '\nimport { i18nmd } from "./i18n";\n\nexport const A = () => <p>{i18nmd("hi")}</p>;\n');
+  assert.equal(extractSource(header + 'import x from "x";\nimport y from "y";\n\nexport const A = () => <p>Hi</p>;\n').source, header + 'import x from "x";\nimport y from "y";\nimport { i18nmd } from "./i18n";\n\nexport const A = () => <p>{i18nmd("hi")}</p>;\n');
+  assert.equal(extractSource('<p>Hi</p>;\n').source, 'import { i18nmd } from "./i18n";\n<p>{i18nmd("hi")}</p>;\n');
 });

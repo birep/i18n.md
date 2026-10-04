@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+Findings from moving a real app (about 550 strings in 12 languages) onto i18nmd.
+
+- **Fixed: JSX extraction honours `translate="no"`** and skips addresses such as `example.com`, as HTML extraction does. A `translate="no"` element inside a sentence, such as a URL in `<code>`, becomes a placeholder so the sentence stays whole.
+- **Fixed: `--add zh translations/site`** treated the path as a language and wrote `i18n-translations-site.md` everywhere. A path among the languages now picks the directory or division to work on, as it does for `translate`, and a path is never accepted as a language name.
+- **Fixed: generated Python passes `mypy --strict`.** `template()` crashed on a message with a tag; it now shows the tag, `<b>{name}</b>`. The plain (`syntax: python`) target is typed too.
+- **Fixed: generated files carry no `eslint-disable` comments,** which failed lint in projects that report unused directives. The types that must be `any` are spelled `ReturnType<typeof JSON.parse>`, which lint rules accept.
+- **`i18nmd accept <token…> [--only fr]`** records reviewed translations as current. A translation edited together with its source, with no `sync` between, is still marked stale, because the files can't show which came first; `sync` now says which stale translations were edited and suggests `accept`. `ui.*` accepts a whole division.
+- **`compile --only <division,…>`** compiles just the divisions one program uses, such as a server's replies for `--target python`, so new divisions no longer leak into it. `.` is the top level.
+- **Element placeholders:** a placeholder can take a React element (or any object), and the call then returns an array to render. TypeScript infers this from the values passed: a call with only text values still returns `string`.
+- **Lists:** `{models, list}`, `{models, list, disjunction}` and `{models, list, unit}` join an array the way each language does ("A, B and C", "A, B o C"), with elements kept in place. The Python module matches `Intl.ListFormat` in every language, including ICU's contextual Spanish and Hebrew forms, checked by a new parity test.
+- **Extractor diagnostics:** an element whose text became several messages that read as one sentence, and strings in object properties and arrays that look like interface text.
+- **Context lines** name the component and the nearest heading, label or `aria-label` instead of a file and line number, which went stale on the next edit.
+- **Import placement:** extract adds its import after the file's other imports, or below its leading comments, instead of above them.
+- **README:** a `useSyncExternalStore(onLanguageChange, getLanguage)` hook re-renders components on a language switch and keeps their state; remounting the app is now the alternative for apps without state.
+- **Language files say apostrophes are ordinary text** in a line under the title, so translators who know ICU stop writing around them. Existing files gain the line the next time i18nmd writes them.
+
 ## 0.3.1
 
 - **Fixed:** the compiler loaded its plural rules through `node:module`, so bundling it for the browser (as the i18n.md demo does) failed. The rules are now a plain JavaScript module.

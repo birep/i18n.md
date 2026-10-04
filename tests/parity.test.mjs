@@ -45,3 +45,27 @@ test('Python renders plurals, ordinals and numbers exactly like JavaScript', asy
     assert.deepEqual(differences.slice(0, 20).map(([[key, l, n], js, py]) => `${key} ${l} ${n}: JS ${JSON.stringify(js)}, Python ${JSON.stringify(py)}`), [], `${differences.length} of ${cases.length} differ`);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('Python joins lists exactly like Intl.ListFormat', async t => {
+  if (spawnSync('python3', ['--version']).status !== 0) return t.skip('python3 is not installed');
+  const list = [...languages, 'zh', 'ko', 'th', 'es-419', 'he-IL'];
+  const styles = { and: '{items, list}', or: '{items, list, disjunction}', unit: '{items, list, unit}' };
+  const catalog = { title: 'T', source: 'en', syntax: 'icu', languages: Object.fromEntries(list.map(l => [l, l])),
+    messages: Object.entries(styles).map(([key, text]) => ({ key, context: '', optional: [], translations: Object.fromEntries(list.map(l => [l, text])) })) };
+  const i18nmd = createI18n(compileCatalog(catalog), { onError: error => { throw error; } });
+  // Words that trigger ICU's contextual forms: Spanish y/e and o/u, Hebrew ו/ו-.
+  const words = ['Ignacio', 'hielo', 'hiato', 'Hidalgo', 'hi', 'ocho', 'Hora', '8', '11', '11 gatos', '110', 'iOS', 'Íñigo', 'בית', 'B', '1', 'Claude', 'GPT'];
+  const items = [[], ['Solo'], ...words.flatMap(w => [['A', w], ['A', 'B', w], ['A', w, 'C', 'D', w]])];
+  const cases = list.flatMap(l => Object.keys(styles).flatMap(key => items.map(i => [key, l, i])));
+  const expected = cases.map(([key, l, i]) => i18nmd(key, l, { items: i }));
+  const dir = await mkdtemp(path.join(tmpdir(), 'i18nmd-parity-'));
+  try {
+    await writeFile(path.join(dir, 'i18n.py'), generateModule(catalog, 'python'));
+    await writeFile(path.join(dir, 'cases.json'), JSON.stringify(cases));
+    const run = spawnSync('python3', ['-c', 'import json\nfrom i18n import i18nmd\nprint(json.dumps([i18nmd(k, l, items=i) for k, l, i in json.load(open("cases.json"))]))'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const actual = JSON.parse(run.stdout);
+    const differences = cases.map((c, i) => [c, expected[i], actual[i]]).filter(([, js, py]) => js !== py);
+    assert.deepEqual(differences.slice(0, 20).map(([[key, l, i], js, py]) => `${key} ${l} ${JSON.stringify(i)}: JS ${JSON.stringify(js)}, Python ${JSON.stringify(py)}`), [], `${differences.length} of ${cases.length} differ`);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

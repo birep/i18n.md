@@ -17,6 +17,10 @@ Give these instructions to a coding agent in the application's repository. They 
    - *looks like a count*: make the message an ICU plural, `{count, plural, one {# item} other {# items}}`.
    - *text chosen in code*: move the wording into the message as an ICU `select` or plural, instead of passing English through a placeholder.
    - *dynamic JSX text*: text built by concatenation or `charAt(0).toUpperCase()`. Give it a message of its own; an internal id shown as text is a bug to fix.
+   - *became N messages*: one element's text was cut into pieces around buttons or links. If the pieces form one sentence, make the elements tags (`<button>…</button>`) or placeholders (an element or a `{models, list}` value) and give the sentence one message.
+   - *looks like text people read* in an object property or array: see step 4.
+
+   Mark code samples, commands, URLs and names `translate="no"`; the extractor leaves them as written.
 
 4. **Find what the extractor can't see**: strings in object properties (`{ label: "Save" }`), plain `.ts` files, validation errors, notifications, `document.title`, and server responses shown to users. Mark simple ones with `/* i18n */` and run extraction again, or write the call yourself. Leave identifiers, URLs, log messages, and anything sent to a machine.
 

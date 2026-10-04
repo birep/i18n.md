@@ -96,7 +96,7 @@ test('the lock declares formatters for check and compile, and generated code reg
     assert.equal(result.status, 0, result.stderr);
     result = run('compile', '--out', 'typed');
     assert.equal(result.status, 0, result.stderr);
-    assert.match(await readFile(path.join(root, 'typed/i18n.ts'), 'utf8'), /export function registerFormatter\(name: "length", format: \(value: any, language: Language\) => string\)/);
+    assert.match(await readFile(path.join(root, 'typed/i18n.ts'), 'utf8'), /export function registerFormatter\(name: "length", format: \(value: Any, language: Language\) => string\)/);
     const { i18nmd, registerFormatter } = await import(pathToFileURL(path.join(root, 'generated/i18n.mjs')));
     registerFormatter('length', inches);
     assert.equal(i18nmd('cut', { len: 8.25 }), 'Cut the board to 8-1/4".');

@@ -133,6 +133,14 @@ test('divisions: translate writes each division back in place, and one division 
     result = await run('translate', 'translations/ui');
     assert.equal(result.status, 0, result.stderr);
     assert.match(await readFile(path.join(root, 'translations/ui/i18n-fr.md'), 'utf8'), /\[fr\] Save changes/);
+    // A path among --add's languages picks the division instead of naming a language.
+    result = await run('--add', 'german', 'translations/marketing');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(path.join(root, 'translations/marketing/i18n-de.md'), 'utf8'), /\[de\] Ship/);
+    await assert.rejects(readFile(path.join(root, 'translations/ui/i18n-de.md')));
+    assert.deepEqual((await readdir(path.join(root, 'translations/marketing'))).filter(f => /translations/.test(f)), []);
+    assert.match((await run('--add', 'german', 'translations/ui', 'translations/marketing')).stderr, /at most one path/);
+    await rm(path.join(root, 'translations/marketing/i18n-de.md'));
     assert.match((await run('join', '--out', 'all.md')).stderr, /several divisions/);
     assert.equal((await run('join', 'translations/ui', '--out', 'ui.md')).status, 0);
     assert.match((await run('rename', 'ui.save', 'marketing.hero')).stderr, /marketing\.hero already exists in translations\/marketing/);
@@ -242,5 +250,41 @@ test('import into a division records it in the tree\'s lock', async () => {
     assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(root, 'translations/i18nmd.lock.json'), 'utf8')).translations.fr), ['procedures.sand']);
     await writeFile(path.join(root, 'translations/procedures/i18n-en.md'), (await readFile(path.join(root, 'translations/procedures/i18n-en.md'), 'utf8')).replace('Sand it.', 'Sand it smooth.'));
     assert.match(run('status').stdout, /stale: procedures\.sand/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('accept records translations edited before a sync; compile --only picks divisions', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-accept-'));
+  try {
+    const file = (name, entries) => `# ${name}\n\n${entries.map(([key, text]) => `## ${key}\n\n\`\`\`icu\n${text}\n\`\`\`\n`).join('\n')}`;
+    const write = (division, locale, name, entries) => mkdir(path.join(root, 'translations', division), { recursive: true }).then(() => writeFile(path.join(root, 'translations', division, `i18n-${locale}.md`), file(name, entries)));
+    await write('chat', 'en', 'English', [['hi', 'Hi'], ['bye', 'Bye']]);
+    await write('chat', 'fr', 'Français', [['hi', 'Salut'], ['bye', 'Au revoir']]);
+    await write('site', 'en', 'English', [['title', 'Welcome']]);
+    await write('site', 'fr', 'Français', [['title', 'Bienvenue']]);
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+    assert.equal(run('sync').status, 0);
+    // The source and its translations change together, with no sync between.
+    await write('chat', 'en', 'English', [['hi', 'Hello there'], ['bye', 'Goodbye']]);
+    await write('chat', 'fr', 'Français', [['hi', 'Bonjour'], ['bye', 'Au revoir']]);
+    let result = run('sync');
+    assert.match(result.stdout, /fr: chat\.hi is stale; its source text changed\. Its translation was edited too; if that was for the new text, run i18nmd accept chat\.hi --only fr/);
+    assert.match(result.stdout, /fr: chat\.bye is stale; its source text changed\n/);
+    result = run('accept', 'chat.hi', '--only', 'fr');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Accepted 1 translation as current/);
+    assert.match(run('status').stdout, /Français \(fr\): 2\/3 done, 1 stale\n  stale: chat\.bye/);
+    assert.equal(run('accept', 'chat.*').status, 0);
+    assert.match(run('status').stdout, /Français \(fr\): 3\/3 done/);
+    assert.match(run('accept', 'chat.nope').stderr, /No token chat\.nope/);
+    assert.match(run('accept', 'chat.hi', '--only', 'de').stderr, /No de translations/);
+
+    result = run('compile', '--target', 'python', '--only', 'chat', '--out', 'py');
+    assert.equal(result.status, 0, result.stderr);
+    const python = await readFile(path.join(root, 'py/i18n.py'), 'utf8');
+    assert.match(python, /"chat\.hi"/);
+    assert.doesNotMatch(python, /site\.title/);
+    assert.match(run('compile', '--only', 'chat', '--skip', 'site').stderr, /either --only or --skip/);
+    assert.match(run('compile', '--only', 'blog').stderr, /No division blog/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

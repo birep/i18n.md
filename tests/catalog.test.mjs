@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCatalog, serializeCatalog, validateCatalog } from '../lib/catalog.mjs';
-import { compileCatalog, generateModule, generateModules } from '../lib/compiler.mjs';
+import { compileCatalog, generateModule, generateModules, runtimeTypes } from '../lib/compiler.mjs';
 import { createI18n } from '../lib/runtime.mjs';
 import { parseMessage } from '../lib/messages.mjs';
 
@@ -87,7 +87,7 @@ test('rich-text tags render through functions, nest in plurals, and are type-che
   assert.throws(() => validateCatalog(catalog('<b>Hi</b>', 'Salut')), /missing <b>/);
   assert.throws(() => parseMessage('<b>Hi</i>'), /Unexpected <\/i>|Unclosed/);
   assert.throws(() => parseMessage('<b>Hi'), /Unclosed <b>/);
-  assert.match(generateModule(catalog('<b>Hi</b>')), /"b": \(chunks: any\[\]\) => any[\s\S]*RichToken = "example"/);
+  assert.match(generateModule(catalog('<b>Hi</b>')), /"b": \(chunks: Any\[\]\) => Any[\s\S]*RichToken = "example"/);
 });
 test('degrades instead of crashing by default', () => {
   const errors = [];
@@ -174,4 +174,51 @@ test('the Python target writes numbers the way each language does', async t => {
     const expected = languages.flatMap(l => cases.map(([v, p, c]) => `${new Intl.NumberFormat(l).format(v)} | ${new Intl.NumberFormat(l, { style: 'percent' }).format(p)} | ${new Intl.NumberFormat(l).format(c)} x`));
     assert.deepEqual(run.stdout.replace(/\n$/, '').split('\n'), expected);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('generated Python shows tags in template() and passes mypy --strict and ruff when installed', async t => {
+  const { spawnSync } = await import('node:child_process');
+  if (spawnSync('python3', ['--version']).status !== 0) return t.skip('python3 is not installed');
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const dir = await mkdtemp(path.join(tmpdir(), 'i18nmd-py-'));
+  try {
+    await writeFile(path.join(dir, 'i18n.py'), generateModule(catalog('Hi <b>{name}</b>, {n, plural, one {# cut} other {# cuts}} {p, number, percent}'), 'python'));
+    await writeFile(path.join(dir, 'plain.py'), generateModule({ ...catalog('Hi {name}'), syntax: 'python' }, 'python'));
+    const run = spawnSync('python3', ['-c', 'from i18n import template\nprint(template("example"))'], { cwd: dir, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, 'Hi <b>{name}</b>, {n} {p}\n');
+    for (const [tool, args] of [['mypy', ['--strict', 'i18n.py', 'plain.py']], ['ruff', ['check', 'i18n.py', 'plain.py']]]) {
+      if (spawnSync(tool, ['--version']).status !== 0) { t.diagnostic(`${tool} is not installed; skipped`); continue; }
+      const result = spawnSync(tool, args, { cwd: dir, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+    }
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('generated JavaScript and TypeScript carry no lint directives', () => {
+  for (const target of ['ts', 'js']) {
+    for (const [name, text] of Object.entries(generateModules({ ...catalog('Hi <b>x</b>'), formatters: [] }, { target }))) assert.doesNotMatch(text, /eslint/, `${target} ${name}`);
+  }
+  assert.doesNotMatch(runtimeTypes, /eslint|\bany\b/);
+});
+
+test('placeholders take elements, and {x, list} joins lists for each language', () => {
+  const link = { type: 'a', props: { children: 'Claude' } };
+  const c = { title: 'T', source: 'en', syntax: 'icu', languages: { en: 'English', es: 'Español' }, messages: [
+    { key: 'pitch', context: '', optional: [], translations: { en: 'Paired with {models}, it builds.', es: 'Con {models}, construye.' } },
+    { key: 'with', context: '', optional: [], translations: { en: 'Works with {names, list, disjunction}.', es: 'Funciona con {names, list, disjunction}.' } },
+    { key: 'all', context: '', optional: [], translations: { en: '{names, list}', es: '{names, list}' } }] };
+  const t = translate(c);
+  assert.deepEqual(t('pitch', 'en', { models: link }), ['Paired with ', link, ', it builds.']);
+  assert.equal(t('pitch', 'en', { models: 'Claude' }), 'Paired with Claude, it builds.');
+  assert.equal(t('with', 'en', { names: ['Claude', 'GPT', 'Gemini'] }), 'Works with Claude, GPT, or Gemini.');
+  assert.equal(t('with', 'es', { names: ['siete', 'ocho'] }), 'Funciona con siete u ocho.');
+  assert.deepEqual(t('with', 'es', { names: [link, 'GPT'] }), ['Funciona con ', link, ' o GPT.']);
+  assert.equal(t('all', 'en', { names: [] }), '');
+  assert.throws(() => t('all', 'en', { names: 'Claude' }), /must be a list/);
+  assert.throws(() => parseMessage('{x, list, sometimes}'), /Unsupported list style/);
+  assert.throws(() => translate(catalog('{x, list}', '{x, number}')), /incompatible type/);
+  assert.match(generateModule(catalog('{x, list} {y}', '{x, list} {y}')), /"x": readonly \(string \| number \| object\)\[\]; "y": string \| number \| null \| undefined \| object/);
 });

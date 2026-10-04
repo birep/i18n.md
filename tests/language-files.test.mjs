@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCatalog, parseLanguageFiles, serializeCatalog, renameToken } from '../lib/catalog.mjs';
+import { parseCatalog, parseLanguageFiles, serializeCatalog, renameToken, APOSTROPHES } from '../lib/catalog.mjs';
 import { report, syncLock, markCurrent } from '../lib/lock.mjs';
 import { compileCatalog } from '../lib/compiler.mjs';
 import { createI18n } from '../lib/runtime.mjs';
@@ -109,7 +109,7 @@ test('division directories map to properties, and reserved or clashing names are
   assert.throws(() => generateModule(parseLanguageFiles({ 'a-b/i18n-en.md': one('x'), 'a_b/i18n-en.md': one('y') })), /a-b and a_b would both be i18nmd\.aB/);
 });
 test('an optional placeholder may be absent from a translation file read on its own', () => {
-  const it = '# Italiano\n\n## guess\n\nOptional: a\n\n```icu\nImmagino {size}\n```\n';
+  const it = '# Italiano\n\n' + APOSTROPHES + '\n\n## guess\n\nOptional: a\n\n```icu\nImmagino {size}\n```\n';
   const parsed = parseCatalog(it, { filename: 'i18n-it.md' });
   assert.equal(serializeCatalog(parsed, { locale: 'it' }), it);
   const en = '# English\n\n## guess\n\nOptional: a\n\n```icu\nI guess {a} {size}\n```\n';
@@ -124,7 +124,7 @@ test('a hand edit made before the source changed does not hide the change', () =
   // Someone corrects the French, then the English changes, all before the next sync.
   let catalog = at('Hello there', 'Bonjour');
   assert.deepEqual(report(catalog, lock)[0].stale, ['a'], 'both changed: the order is unknown, so it needs review');
-  assert.deepEqual(syncLock(catalog, lock), ['fr: a is stale; its source text changed']);
+  assert.deepEqual(syncLock(catalog, lock), ['fr: a is stale; its source text changed. Its translation was edited too; if that was for the new text, run i18nmd accept a --only fr']);
   assert.deepEqual(syncLock(catalog, lock), [], 'a repeated sync reports nothing new');
   assert.deepEqual(report(catalog, lock)[0].stale, ['a'], 'still stale until the translation is edited');
   // Now the translator updates it for the new English: accepted.
