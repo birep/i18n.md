@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Fixed: Python plurals now match JavaScript.** The Python module used a table of whole numbers, so decimals always took `other` (French `1.5` is `one`) and large numbers could pick the wrong form (French `1000000` is `many`). It now evaluates CLDR's plural rules, the data behind `Intl.PluralRules`, with the same operands and rounding, and rounds numbers half away from zero as `Intl` does. Python numbers are read as doubles, like JavaScript's. A new cross-runtime test renders plurals, ordinals and every number style in 20 languages over 160 values and requires identical output.
+- **Currencies in Python:** `{n, number, ::currency/EUR}` now writes the currency as `Intl` does.
+- **App formatters:** `{len, length}` passes a value to a function the app supplies, for text ICU can't write, such as fractional inches. Declare the names in `i18nmd.lock.json` (`"formatters": ["length"]`), then `registerFormatter` (generated JavaScript), `createI18n(catalog, { formatters })`, or `register_formatter` (Python).
+- **`has(token)`:** `i18nmd.has(token)`, `i18nmd.<division>.has(token)` and Python's `has(token)` say whether a token is compiled. A division can no longer be called `has`.
+- **`import --merge`** adds source-language messages to an existing source file without touching other languages or the lock. The README describes how to translate sentences stored in a database this way.
+
 ## 0.2.1
 
 - **Python numbers follow each language:** grouping and decimal marks, Indian-style grouping, minus signs and percent signs come from `Intl` at compile time, so `{n, number}` and `#` match the JavaScript runtime.

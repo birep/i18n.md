@@ -33,6 +33,7 @@ The files are the source of truth. They diff in pull requests, and anyone can ha
 - [Extracting strings from your code](#extracting-strings-from-your-code)
 - [Translating with an LLM](#translating-with-an-llm)
 - [Keeping translations current](#keeping-translations-current)
+- [Text from a database](#text-from-a-database)
 - [Python](#python)
 - [Other formats and libraries](#other-formats-and-libraries)
 - [Command reference](#command-reference)
@@ -165,6 +166,7 @@ Bonjour {name} !
 - **Context** explains where a string appears and anything a translator needs: tone, length limits, what not to translate.
 - **Optional** lists placeholders a translation may leave out, such as an English article (`{a}` for "a" or "an") that other languages don't need.
 - The message is [ICU MessageFormat](https://unicode-org.github.io/icu/userguide/format_parse/messages/): named placeholders `{name}`, `plural`, `selectordinal`, `select`, `number` (`integer`, `percent`, `::currency/EUR`), `date` and `time` with a style, and tags such as `<b>…</b>`.
+- **App formatters** cover values ICU can't write, such as `1-1/2"`: `{len, length}` passes `len` to a function your app supplies. Declare the names once in `i18nmd.lock.json`, `"formatters": ["length"]`, and `check` and `compile` reject any other type. Translators may move the placeholder but not change its type; put unit notes in the context line. The same value can also choose a plural branch, `{len, plural, …}`.
 - An apostrophe is just an apostrophe. To write a literal brace, or `<` before a letter, quote it: `'{'`, `'<'`.
 
 That is the whole format. Bookkeeping lives beside the files in `i18nmd.lock.json`, which records the source language and which translations are current.
@@ -274,6 +276,18 @@ i18nmd('read_the_guide', {
 
 Messages with tags return an array, which React renders directly.
 
+### App formatters
+
+Register each formatter the lock declares before rendering. It receives the value and the language being written, and returns text:
+
+```ts
+import { registerFormatter } from './i18n/i18n';
+
+registerFormatter('length', (inches, language) => language === 'en' ? toFractionalInches(inches) : `${Math.round(inches * 25.4)} mm`);
+```
+
+i18nmd ships no formatters; your app decides what `length` means. A missing or failing formatter is reported like other runtime errors and the raw value is shown.
+
 ### What compile writes
 
 | File | Holds |
@@ -289,6 +303,8 @@ Commit these or generate them in your build; compile removes files it generated 
 ### Errors at runtime
 
 An unknown token or a missing value never crashes the page. The runtime logs it and shows the token name or `{placeholder}` instead. A token from a division the page never imported says which import to add.
+
+`i18nmd.has('cart_items')`, or `i18nmd.ui.has('save')` for a division, says whether a token is in the compiled catalog without logging anything, so code can tell text added since the last compile from a mistake.
 
 ## Extracting strings from your code
 
@@ -357,6 +373,20 @@ A translation is **stale** when its source text changed after it was written. Ed
 
 Commands find `translations/`, `i18n/`, `locales/` or the current directory on their own; pass a path or `--dir` for anywhere else. Every command also accepts a joined file in place of a directory.
 
+## Text from a database
+
+Sentences stored in a database, such as narration written by people or agents, are translated through the same files. i18nmd has no database adapter and never translates at request time; the Markdown files and the lock are the cache, so each sentence is translated once.
+
+1. A job in your app writes new or changed sentences as FormatJS JSON, `{"step_42": {"defaultMessage": "Cut the board to {len, length}.", "description": "Narration for step 42"}}`, and merges them into a division's source file:
+
+   ```sh
+   npx i18nmd import sentences.json --from formatjs --merge --out translations/procedures
+   ```
+
+   `--merge` appends new tokens and replaces changed text. It removes nothing and leaves other languages and the lock alone, so `status` lists new sentences as missing and changed ones as stale.
+2. `npx i18nmd translate` fills the other languages, and `npx i18nmd compile` builds the catalog.
+3. Until a sentence is translated, the runtime shows it in the source language. Until it is compiled, `i18nmd.has(token)` is false and the app shows its own copy of the text.
+
 ## Python
 
 ```sh
@@ -369,7 +399,9 @@ from app.i18n.i18n import i18nmd, template, LANGS
 i18nmd("server.parts", "de", n=3)   # "3 Teile"
 ```
 
-The Python module has no dependencies. It formats placeholders, plurals, ordinals, selects and numbers, with each language's plural rules and number style (`1.234,5` in German, `12,34,567` in Hindi) taken from your Node.js's `Intl` at compile time. `template(token, language)` returns the message with placeholders shown as `{name}`. `import-python <module.py> --out translations` converts an existing literal Python translation table.
+The Python module has no dependencies, and it renders every message exactly as the JavaScript runtime does: placeholders, plurals, ordinals, selects and numbers, including decimals such as French `1,5`, which takes the `one` form. Plural rules come from CLDR, the data `Intl` uses, and each language's number style (`1.234,5` in German, `12,34,567` in Hindi, currencies) from your Node.js's `Intl` at compile time. Python numbers are read as doubles, as JavaScript reads them. A test renders a spread of languages and values in both runtimes and requires identical output. That parity holds against CLDR 48 (Node.js 26); a browser with older CLDR data can differ from the Python rules in rare cases, which is a difference in `Intl` versions, not a bug in i18nmd.
+
+`template(token, language)` returns the message with placeholders shown as `{name}`, `has(token)` says whether a token is in the module, and `register_formatter("length", fn)` supplies an app formatter, where `fn(value, language)` returns text. Keep each formatter the same in both languages; i18nmd can only promise identical output for its own formatting. `import-python <module.py> --out translations` converts an existing literal Python translation table.
 
 ## Other formats and libraries
 
@@ -394,7 +426,7 @@ FormatJS and next-intl already use ICU, so conversion is lossless, and FormatJS 
 | `status`, `check`, `sync` | `--strict`, `--in src`, `--fix`, `--skip` |
 | `rename <old> <new>` | `--in src` |
 | `join`, `split` | `--out` |
-| `import`, `export`, `import-python` | `--from`, `--to`, `--out` |
+| `import`, `export`, `import-python` | `--from`, `--to`, `--out`, `--merge` |
 | `languages` | The ranked list `--top` uses. |
 
 Every command takes `--dir`, and `--source` to override the source language recorded in the lock. `npx i18nmd --help` lists everything.
@@ -404,6 +436,7 @@ Every command takes `--dir`, and `--source` to override the source language reco
 - The extractor reads HTML, JavaScript and TypeScript. Strings in object properties (`{ label: "Save" }`) and plain `.ts` files need `/* i18n */` or the extraction prompt.
 - Switching language loads that whole language at once, not per division.
 - The Python target writes dates as given, and a tag's text without its markup unless you pass a function for it.
+- App formatters are yours to keep identical in JavaScript and Python.
 
 ## Development
 

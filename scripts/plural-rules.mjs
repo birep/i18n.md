@@ -1,0 +1,18 @@
+// Writes lib/plural-rules.json, CLDR's plural rules without their samples, from
+// the cldr-core dev dependency. The Python target turns these rules into code;
+// keep cldr-core at the CLDR version of Node's ICU (process.versions.cldr).
+import { readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const read = async name => JSON.parse(await readFile(require.resolve(`cldr-core/supplemental/${name}.json`), 'utf8')).supplemental;
+const order = ['zero', 'one', 'two', 'few', 'many'];
+const rules = {};
+for (const [type, file] of [['cardinal', 'plurals'], ['ordinal', 'ordinals']]) {
+  const table = (await read(file))[`plurals-type-${type}`];
+  rules[type] = Object.fromEntries(Object.keys(table).sort().map(lang => [lang, Object.fromEntries(order
+    .map(category => [category, table[lang][`pluralRule-count-${category}`]?.split('@')[0].trim()])
+    .filter(([, rule]) => rule))]));
+}
+const version = require('cldr-core/package.json').version;
+await writeFile(new URL('../lib/plural-rules.json', import.meta.url), JSON.stringify({ cldr: version, ...rules }) + '\n');

@@ -41,6 +41,8 @@ Build
 
 Other tools
   import <files.json...> --from ${FORMATS.join('|')} [--out translations] [--source en]
+      --merge                              Add source-language messages to the source file in
+                                           --out, keeping its tokens, translations and the lock.
   export --to ${FORMATS.join('|')} --out <dir>
   import-python <module.py> --out <dir>
   languages                                The ranked language list used by --top.
@@ -122,8 +124,8 @@ async function open(input, options) {
   const strict = !!options.strict;
   const raw = directory ? await readLanguageFiles(input) : { [input]: await readFile(input, 'utf8') };
   const catalog = directory
-    ? parseLanguageFiles(raw, { source: options.source || lock.source, syntax: options.syntax || 'icu', strict, prefix: await divisionPrefix(input, lockFile) })
-    : parseCatalog(raw[input], { filename: input, syntax: options.syntax, allowIncomplete: !strict, lenient: !strict });
+    ? parseLanguageFiles(raw, { source: options.source || lock.source, syntax: options.syntax || 'icu', strict, prefix: await divisionPrefix(input, lockFile), formatters: lock.formatters })
+    : parseCatalog(raw[input], { filename: input, syntax: options.syntax, allowIncomplete: !strict, lenient: !strict, formatters: lock.formatters });
   catalog.orphans ||= {};
   catalog.divisions ||= [''];
   let queue = Promise.resolve();
@@ -476,6 +478,29 @@ async function main() {
     if (!options.from) throw new Error(`Choose the format with --from ${FORMATS.join('|')}.`);
     const out = options.out || 'translations';
     const warnings = [];
+    // --merge adds source-language messages to the source file in --out: new tokens
+    // are appended, changed text replaces the old, and nothing is removed. Other
+    // languages and the lock are left alone, so status shows what to translate.
+    if (options.merge) {
+      const lock = await readLock((await findLock(out)).file);
+      const source = options.source || lock.source || 'en';
+      const file = path.join(out, `i18n-${source}.md`);
+      const catalog = await exists(file) ? parseCatalog(await readFile(file, 'utf8'), { filename: file, locale: source, formatters: lock.formatters }) : { title: 'Translations', source, syntax: 'icu', languages: { [source]: resolveLanguage(source).name }, messages: [] };
+      const index = new Map(catalog.messages.map(m => [m.key, m]));
+      let added = 0, changed = 0;
+      for (const input of positional) {
+        for (const m of importMessages(JSON.parse(await readFile(input, 'utf8')), options.from, warnings, lock.formatters)) {
+          const existing = index.get(m.key);
+          if (!existing) { const message = { key: m.key, context: m.context, optional: [], translations: { [source]: m.text } }; catalog.messages.push(message); index.set(m.key, message); added++; continue; }
+          if (existing.translations[source] !== m.text) { existing.translations[source] = m.text; changed++; }
+          if (m.context) existing.context = m.context;
+        }
+      }
+      warnings.forEach(w => console.warn(`i18nmd: ${w}`));
+      if (!added && !changed) { console.log(`${file} already has every message.`); return; }
+      await save(file, serializeCatalog(catalog, { locale: source }));
+      console.log(`Added ${plural(added, 'token')} and updated ${plural(changed, 'token')} in ${file}. Run i18nmd translate to fill the other languages.`); return;
+    }
     const byLocale = new Map();
     const files = positional.map(file => ({ file, ...localeFromJsonPath(file) }));
     const namespaces = new Set(files.map(f => f.namespace).filter(Boolean));

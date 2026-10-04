@@ -95,6 +95,10 @@ test('degrades instead of crashing by default', () => {
   assert.equal(t('missing_token', 'en'), 'missing_token');
   assert.equal(t('example', 'en'), 'Hi {name}');
   assert.equal(errors.length, 2);
+  assert.equal(t.has('example'), true);
+  assert.equal(t.has('missing_token'), false);
+  assert.equal(t.has('__proto__'), false);
+  assert.equal(errors.length, 2, 'has() reports nothing');
 });
 
 test('the generated translator follows the current language, loads languages, and exposes divisions', async () => {
@@ -120,6 +124,7 @@ test('the generated translator follows the current language, loads languages, an
   assert.equal(i18nmd.kb.faq('q'), 'Question');
   assert.equal(i18nmd('top'), 'Top');
   assert.equal(i18nmd.in('en').ui('save'), 'Save');
+  assert.deepEqual([i18nmd.has('top'), i18nmd.has('ui.save'), i18nmd.ui.has('save'), i18nmd.kb.faq.has('q'), i18nmd.ui.has('later'), i18nmd.in('pt-BR').ui.has('save')], [true, true, true, true, false, true]);
   stop(); await language.setLanguage('en'); await language.setLanguage('pt-BR');
   assert.deepEqual(seen, ['pt-BR']);
   assert.deepEqual(loads, ['pt-BR'], 'each language loads once');
@@ -144,10 +149,10 @@ test('the Python target formats ICU plurals, ordinals and selects without depend
 print(i18nmd("chat.parts", "en", n=0, who="Al", k=22)); print(i18nmd("chat.parts", "en-GB", n="1", who="Al", k=112))
 print(i18nmd("chat.parts", "pl", n=22, who=None, k=1)); print(i18nmd("chat.parts", "pl", n=25, who="A", k=1))
 print(i18nmd("pick", "fr", x="a", y=None))
-from i18n import template, TOKENS
-print(template("chat.parts", "en"), sorted(TOKENS))`], { cwd: dir, encoding: 'utf8' });
+from i18n import template, TOKENS, has
+print(template("chat.parts", "en"), sorted(TOKENS), has("pick"), has("later"))`], { cwd: dir, encoding: 'utf8' });
     assert.equal(run.status, 0, run.stderr);
-    assert.deepEqual(run.stdout.replace(/\n$/, '').split('\n'), ['no parts for Al, 22nd', '1 part for Al, 112th', '22 części dla , 1', '25 częściM dla A, 1', "Alpha isn't ", "{n} for {who}, {k} ['chat.parts', 'pick']"]);
+    assert.deepEqual(run.stdout.replace(/\n$/, '').split('\n'), ['no parts for Al, 22nd', '1 part for Al, 112th', '22 części dla , 1', '25 częściM dla A, 1', "Alpha isn't ", "{n} for {who}, {k} ['chat.parts', 'pick'] True False"]);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

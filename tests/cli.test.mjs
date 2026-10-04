@@ -205,3 +205,28 @@ test('the README quickstart works with every default', async () => {
     assert.match(run('--version').stdout, /^\d+\.\d+\.\d+\n$/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('import --merge adds source messages to a division without touching translations or the lock', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-merge-'));
+  try {
+    const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+    const division = path.join(root, 'translations/procedures');
+    await mkdir(division, { recursive: true });
+    await writeFile(path.join(division, 'i18n-en.md'), '# Translations\n\nLanguage: English\n\n## glue\n\n```icu\nGlue the joint.\n```\n\n## sand\n\n```icu\nSand it.\n```\n');
+    await writeFile(path.join(division, 'i18n-fr.md'), '# Traductions\n\nLanguage: Français\n\n## glue\n\n```icu\nCollez le joint.\n```\n\n## sand\n\n```icu\nPoncez.\n```\n');
+    assert.equal(run('sync').status, 0);
+    const before = [await readFile(path.join(division, 'i18n-fr.md'), 'utf8'), await readFile(path.join(root, 'translations/i18nmd.lock.json'), 'utf8')];
+    await writeFile(path.join(root, 'sentences.json'), JSON.stringify({ cut: { defaultMessage: 'Cut the board to {len}.', description: 'Narration; len is a length' }, sand: 'Sand it smooth.', glue: 'Glue the joint.' }));
+    let result = run('import', 'sentences.json', '--from', 'formatjs', '--merge', '--out', 'translations/procedures');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Added 1 token and updated 1 token/);
+    const source = parseCatalog(await readFile(path.join(division, 'i18n-en.md'), 'utf8'), { locale: 'en' });
+    assert.deepEqual(source.messages.map(m => [m.key, m.translations.en]), [['glue', 'Glue the joint.'], ['sand', 'Sand it smooth.'], ['cut', 'Cut the board to {len}.']]);
+    assert.equal(source.messages[2].context, 'Narration; len is a length');
+    assert.deepEqual([await readFile(path.join(division, 'i18n-fr.md'), 'utf8'), await readFile(path.join(root, 'translations/i18nmd.lock.json'), 'utf8')], before);
+    result = run('status');
+    assert.match(result.stdout, /stale: procedures\.sand/);
+    assert.match(result.stdout, /missing: procedures\.cut/);
+    assert.match(run('import', 'sentences.json', '--from', 'formatjs', '--merge', '--out', 'translations/procedures').stdout, /already has every message/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
