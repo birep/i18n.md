@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - **Fixed: Python plurals now match JavaScript.** The Python module used a table of whole numbers, so decimals always took `other` (French `1.5` is `one`) and large numbers could pick the wrong form (French `1000000` is `many`). It now evaluates CLDR's plural rules, the data behind `Intl.PluralRules`, with the same operands and rounding, and rounds numbers half away from zero as `Intl` does. Python numbers are read as doubles, like JavaScript's. A new cross-runtime test renders plurals, ordinals and every number style in 20 languages over 160 values and requires identical output.
 - **Currencies in Python:** `{n, number, ::currency/EUR}` now writes the currency as `Intl` does.
