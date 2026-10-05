@@ -182,3 +182,12 @@ test('SVG paths are not text, and i18n-ignore keeps a value as written', () => {
   assert.match(result.source, /label: "OpenAI"/);
   assert.match(result.source, /get label\(\) \{ return i18nmd\("local"\); \}/);
 });
+
+test('camelCase label properties count, identifiers and class names do not', () => {
+  const input = 'const RAIL = [{ idleTitle:\n  "Click two points to draw a line", commitLabel: "Send to laser", sawName: "Table Saw" }];\nconst C = { displayName: "MyComponent", className: "Card", fileName: "report.pdf" };';
+  const result = extractSource(input, { filename: 'rail.ts' });
+  assert.match(result.source, /get idleTitle\(\) \{ return i18nmd\("click_two_points_to_draw_a_line"\); \}/);
+  assert.match(result.source, /get commitLabel\(\)/);
+  assert.match(result.source, /get sawName\(\)/);
+  assert.match(result.source, /displayName: "MyComponent", className: "Card", fileName: "report\.pdf"/);
+});

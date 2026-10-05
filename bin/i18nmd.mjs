@@ -124,6 +124,24 @@ async function checkHardcoded(options) {
   console.log(`${plural(total, 'hard-coded string')}, none new.${shrunk.length ? ` ${plural(shrunk.length, 'file')} went down; --write-baseline records it.` : ''}`);
 }
 
+/** The compiled i18n module (".../i18n/i18n", no extension) nearest the given
+ * directories: each directory and its parents are searched for i18n/i18n.* or
+ * src/i18n/i18n.* written by compile. */
+async function findRuntime(dirs) {
+  for (const start of dirs) {
+    for (let dir = start; ; dir = path.dirname(dir)) {
+      for (const base of [path.join(dir, 'i18n', 'i18n'), path.join(dir, 'src', 'i18n', 'i18n')]) {
+        for (const ext of ['.ts', '.js', '.mjs']) {
+          const text = await readFile(base + ext, 'utf8').catch(() => '');
+          if (text.startsWith('// Generated from i18n.md')) return base;
+        }
+      }
+      if (dir === path.dirname(dir) || dir === process.cwd()) break;
+    }
+  }
+  return undefined;
+}
+
 async function save(file, text) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text); }
 const exists = file => stat(file).then(() => true, () => false);
 const isDirectory = file => stat(file).then(s => s.isDirectory(), () => false);
@@ -665,8 +683,9 @@ async function main() {
     if (!options['in-place'] && (destination === root || destination.startsWith(root + path.sep))) throw new Error('The destination must be outside the input tree so repeated extraction cannot read its own output. Use --in-place to rewrite the sources.');
     // Code imports i18nmd from its division's generated module (src/i18n/ui), or from
     // src/i18n/i18n for top-level tokens; --runtime names the latter.
-    // The default matches compile's default --out, src/i18n.
-    const main = path.resolve(options.runtime || 'src/i18n/i18n');
+    // Without --runtime, the compiled module nearest the sources (apps/web/src/i18n
+    // in a monorepo), else compile's default --out, src/i18n.
+    const main = path.resolve(options.runtime || await findRuntime(dirs) || 'src/i18n/i18n');
     const runtime = namespace ? path.join(path.dirname(main), divisionFile(namespace.slice(0, -1).replace(/\./g, '/'))) : main;
     // Existing tokens are always kept, so extraction can be repeated as code changes.
     let catalog = await exists(sourceFile) ? parseCatalog(await readFile(sourceFile, 'utf8'), { filename: sourceFile }) : undefined;

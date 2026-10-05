@@ -319,3 +319,17 @@ test('check --hardcoded counts text written in code and holds a baseline', async
     assert.notEqual((await run('check', '--hardcoded', 'src')).status, 0);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('extract finds the compiled module in a monorepo without --runtime', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-mono-'));
+  const run = (...args) => new Promise(resolve => execFile(process.execPath, [cli, ...args], { cwd: root }, (error, stdout, stderr) => resolve({ status: error ? error.code ?? 1 : 0, stdout, stderr })));
+  try {
+    await mkdir(path.join(root, 'apps', 'web', 'src', 'i18n'), { recursive: true });
+    await mkdir(path.join(root, 'translations', 'ui'), { recursive: true });
+    await writeFile(path.join(root, 'apps', 'web', 'src', 'i18n', 'i18n.ts'), '// Generated from i18n.md. Edit the Markdown source.\n');
+    await writeFile(path.join(root, 'apps', 'web', 'src', 'Page.tsx'), 'export const Page = () => <p>Hello there</p>;\n');
+    const result = await run('extract', 'apps/web/src/Page.tsx', '--out', 'translations/ui', '--in-place');
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(await readFile(path.join(root, 'apps', 'web', 'src', 'Page.tsx'), 'utf8'), /from "\.\/i18n\/ui"/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

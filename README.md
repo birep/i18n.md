@@ -347,7 +347,7 @@ It also flags:
 
 Each message's context names its component and the nearest heading, label or `aria-label`: `Text in <p> in Pitch, under the heading "Bring your own agent"`. Edit it to say what a translator needs; extract never rewrites context. The import goes after the file's other imports, or below its leading comments.
 
-Token names come from the words of the message, such as `welcome_back`, and never change when you edit the text. Running extract again keeps every token and translation, and only adds new strings. Without `--in-place` it writes converted copies to `--dest` (default `.i18n/src`) and leaves your sources alone. `--out translations/<division>` extracts into a division.
+Token names come from the words of the message, such as `welcome_back`, and never change when you edit the text. Running extract again keeps every token and translation, and only adds new strings. Without `--in-place` it writes converted copies to `--dest` (default `.i18n/src`) and leaves your sources alone. `--out translations/<division>` extracts into a division. Imports point at the compiled module nearest the sources (`src/i18n/i18n`, or `apps/web/src/i18n/i18n` in a monorepo); `--runtime path/to/i18n` names it when there are several.
 
 ### Keeping text out of code
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- **Fixed: extract wrote wrong imports in a monorepo.** It assumed the compiled module lived at `src/i18n`, so a project compiling to `apps/web/src/i18n` got `../../../src/i18n/…` imports, or "i18nmd is already imported from a different module" in files that already import a division. Without `--runtime`, extract now uses the compiled module nearest the sources.
+- **camelCase label properties are labels:** `idleTitle`, `commitLabel`, `sawName`, `emptyHint` and other names ending in Label, Title, Name, Heading, Hint, Tooltip, Caption, Placeholder, Description, Blurb or Message. Identifier-like values (`displayName: "MyComponent"`) and machine keys (`className`) are left alone.
+
 ## 0.6.0
 
 Less hand work after `extract`, and a check that keeps new text out of code.
