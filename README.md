@@ -333,6 +333,7 @@ npx i18nmd extract src/account src/routes.tsx --out translations/account --in-pl
 - Inline elements such as `<b>`, `<a href>` and `<Link to>`, which become tags.
 - Wording chosen in code: `{busy ? "Saving…" : "Save"}` on its own becomes two messages. Inside a sentence it becomes a `select`: `Status: {busy ? "saving" : "saved"}` is `Status: {busy, select, yes {saving} other {saved}}`, and the code passes `busy ? "yes" : "no"`.
 - Counts chosen in code: `{n} file{n === 1 ? "" : "s"}` becomes `{n, plural, one {# file} other {# files}}`. A comparison with 1 (`=== 1`, `!== 1`, `> 1`) between two strings is a plural.
+- Text chosen in code that runs each time: `return "Cut line"`, `title={open ? "Hide" : "Show"}`, `title = "Inspector"`, a label parameter's default. Text set once when a module loads is listed instead.
 - Labels in objects, one word or many: `{ label: "Drill" }` becomes `{ get label() { return i18nmd("drill"); } }`, so a language switch reaches it. The properties are `label`, `title`, `heading`, `description`, `hint`, `tooltip`, `caption`, `placeholder`, `summary` and the like. A map named for labels (`STATUS_LABELS`, `toolNames`) has every value converted.
 - Visible attributes: `alt`, `title`, `placeholder`, `label`, `aria-label`, `aria-description`.
 - Any string marked `/* i18n */`, or `/* i18n:token_name */` to choose its token.

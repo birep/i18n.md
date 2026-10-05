@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCatalog } from '../lib/catalog.mjs';
-import { translateLanguage } from '../lib/llm.mjs';
+import { readReply, translateLanguage } from '../lib/llm.mjs';
 
 const source = '# English\n\n' + Array.from({ length: 6 }, (_, i) => `## m${i}\n\n\`\`\`icu\nMessage ${i}\n\`\`\`\n`).join('\n');
 const reply = user => [...user.matchAll(/^## (\S+)/gm)].map(([, key]) => `## ${key}\n\n\`\`\`icu\n[fr] ${key}\n\`\`\`\n`).join('\n');
@@ -38,4 +38,13 @@ test('requests are sized to fit the output limit before anything is sent', async
   await translateLanguage(catalog, { code: 'fr', name: 'Français' }, catalog.messages.map(m => m.key), { maxOutput: 1000 }, { chatImpl });
   assert.ok(sizes.length > 1);
   assert.equal(sizes.reduce((a, b) => a + b, 0), 40);
+});
+
+test('one malformed message in a reply does not discard the others', () => {
+  const catalog = parseCatalog(source, { locale: 'en' });
+  const good = key => `## ${key}\n\n\`\`\`icu\n[fr] ${key}\n\`\`\`\n`;
+  const reply = [good('m0'), '## m1\n\n```icu\n{broken, select\n```\n', good('m2')].join('\n');
+  const { ok, errors } = readReply(reply, catalog, { code: 'fr', name: 'Français' }, catalog.messages.slice(0, 3));
+  assert.deepEqual(Object.keys(ok).sort(), ['m0', 'm2']);
+  assert.match(errors.m1, /unreadable reply|missing/);
 });

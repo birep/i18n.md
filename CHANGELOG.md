@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- **Text chosen in code is converted where it is evaluated each time:** a string returned from a function (`return "Cut line"`), picked in a visible attribute (`title={open ? "Hide the chat" : "Show the chat"}`), assigned to a label-like variable or property (`title = "Inspector"`, `text: done ? "Archived" : "Restored"`) or used as a label-like parameter default. Text set once at module load (`const SIGN_IN_REASON = "…"`) is reported instead, since a language change can't reach it. `check --hardcoded` counts all of these.
+- **One malformed message no longer discards a reply.** When a translation reply has one unreadable message, the other messages in it are kept and only that one is retried or reported.
+
 ## 0.6.1
 
 - **Fixed: extract wrote wrong imports in a monorepo.** It assumed the compiled module lived at `src/i18n`, so a project compiling to `apps/web/src/i18n` got `../../../src/i18n/…` imports, or "i18nmd is already imported from a different module" in files that already import a division. Without `--runtime`, extract now uses the compiled module nearest the sources.

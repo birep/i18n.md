@@ -191,3 +191,20 @@ test('camelCase label properties count, identifiers and class names do not', () 
   assert.match(result.source, /get sawName\(\)/);
   assert.match(result.source, /displayName: "MyComponent", className: "Card", fileName: "report\.pdf"/);
 });
+
+test('interface text chosen in code is converted where it is evaluated each time', () => {
+  const input = [
+    'function markLabel(kind) { if (kind === "ref") return "Reference line"; return kind === "cut" ? "Cut line" : "Etching"; }',
+    'export const Bar = ({ open, title = "Precise angle" }) => <button title={open ? "Hide the chat" : "Show the chat"} aria-label={open ? "Pause" : "Play"}>x</button>;',
+    'function panel(p) { let title = "Inspector"; if (p) title = "Move"; flash({ kind: "ok", text: p ? "Archived" : "Restored" }); return title; }',
+    'const SIGN_IN_REASON = "Sign in to vote";',
+    'function ids(k) { return k ? "cut" : "ref"; }',
+    'function who(s) { return /* i18n-ignore */ "Dusty"; }',
+  ].join('\n');
+  const result = extractSource(input, { filename: 'p.tsx' });
+  const texts = result.catalog.messages.map(m => m.translations.en);
+  for (const t of ['Reference line', 'Cut line', 'Etching', 'Hide the chat', 'Show the chat', 'Pause', 'Play', 'Precise angle', 'Inspector', 'Move', 'Archived', 'Restored']) assert.ok(texts.includes(t), t);
+  assert.ok(!texts.includes('cut') && !texts.includes('Dusty') && !texts.includes('Sign in to vote'));
+  assert.match(result.diagnostics.join('\n'), /"Sign in to vote" is set once when the module loads/);
+  assert.match(result.source, /title=\{open \? i18nmd\("hide_the_chat"\) : i18nmd\("show_the_chat"\)\}/);
+});
