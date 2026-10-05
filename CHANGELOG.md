@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0
+
+Less hand work after `extract`, and a check that keeps new text out of code.
+
+- **`check --hardcoded <dir>`** lists text people read that is still written in code, with file and line. `--baseline f.json` fails only when a file gains more than the baseline records, so a project can adopt i18nmd gradually; `--write-baseline` records the current counts; `--skip` leaves out paths.
+- **Labels in objects become getters.** `{ label: "Drill" }`, including one-word labels, becomes `get label() { return i18nmd("drill"); }`, so a language switch reaches it. A map named for labels (`STATUS_LABELS`) has every value converted.
+- **Choices in a sentence become `select`,** with the code passing `"yes"`/`"no"`; on their own they still become two messages.
+- **Counts chosen in code become plurals.** `{n} file{n === 1 ? "" : "s"}` becomes `{n, plural, one {# file} other {# files}}`.
+- **`/* i18n-ignore */`** keeps a string or property as written (brand names, codes).
+- **Fixed:** SVG path data in arrays was reported as interface text.
+
 ## 0.5.1
 
 - **Requests fit the model's output limit before they are sent.** 0.5.0 sent each language as one request, and when the reply ran past the model's limit (8,000 tokens on DeepSeek) the cut-off reply was paid for, thrown away and split; a run estimated at 250,000 tokens used 710,000. Messages are now grouped so each reply fits within 60% of `--max-output` (8,000 by default, also sent as `max_tokens`), and the estimate counts those requests. Splitting a cut-off reply stays as a fallback.

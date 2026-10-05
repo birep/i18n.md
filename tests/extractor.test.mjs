@@ -61,9 +61,9 @@ test('reports unsafe dynamic text and refuses binding or token collisions', () =
 
 test('keeps sentences whole around computed values, and skips text without words', () => {
   const result = extractSource('<p>This {LABELS[item.kind].toLowerCase()} is on {names}, kerf {formatLength(kerf, units)}, {rows.length} rows, {a ? " those" : " that one"}.</p>');
-  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['This {kind} is on {names}, kerf {kerf}, {rowsCount} rows, {a}.']);
-  assert.match(result.source, /kind: LABELS\[item\.kind\]\.toLowerCase\(\), names: names, kerf: formatLength\(kerf, units\), rowsCount: rows\.length, a: a \? " those" : " that one"/);
-  assert.match(result.diagnostics.join('\n'), /\{a\} is text chosen in code/);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['This {kind} is on {names}, kerf {kerf}, {rowsCount} rows, {a, select, yes { those} other { that one}}.']);
+  assert.match(result.source, /kind: LABELS\[item\.kind\]\.toLowerCase\(\), names: names, kerf: formatLength\(kerf, units\), rowsCount: rows\.length, a: a \? "yes" : "no"/);
+  assert.doesNotMatch(result.diagnostics.join('\n'), /\{a\} is text chosen in code/);
   assert.match(result.diagnostics.join('\n'), /\{rowsCount\} looks like a count/);
   assert.deepEqual(extractSource('<p>Cut {VIDEO[k].label.split(" ·")[0]} with {s.drive ? ` · ${s.drive.size}` : ""}</p>').catalog.messages.map(m => m.translations.en), ['Cut {label} with {drive}']);
   const symbols = extractSource('<div><strong>60</strong><span>⏮</span><span>{a} · ▲ {votes}</span><img alt="5" /><p>Ends {list.map(x => <i>{x}</i>)}</p></div>');
@@ -142,17 +142,43 @@ test('warns when one element\'s text becomes several messages that read as one s
   assert.match(result.diagnostics.join('\n'), /Pitch\.tsx:1: <p> became 3 messages around <button>.*"Want to see it\?" \| "or" \| "the gallery first\."/);
   assert.doesNotMatch(extractSource('<div><p>One.</p><p>Two.</p></div>').diagnostics.join('\n'), /became/);
 });
-test('lists strings in object properties and arrays that look like interface text', () => {
+test('label properties become getters; other interface text in arrays is listed', () => {
   const input = 'const TOOLS = [{ id: "miter", label: "Miter saw" }, { id: "rip", label: "Rip cut", icon: "Saw icon" }];\nconst CHIPS = ["Build a bookshelf", "a-b"];\nconst label = { title: /* i18n */ "Done already." };';
-  const diagnostics = extractSource(input, { filename: 'tools.ts' }).diagnostics.join('\n');
-  assert.match(diagnostics, /tools\.ts:1: "Miter saw" in the label property looks like text people read/);
-  assert.match(diagnostics, /"Rip cut"/);
+  const result = extractSource(input, { filename: 'tools.ts' });
+  const diagnostics = result.diagnostics.join('\n');
+  assert.match(result.source, /\{ id: "miter", get label\(\) \{ return i18nmd\("miter_saw"\); \} \}/);
+  assert.match(result.source, /get label\(\) \{ return i18nmd\("rip_cut"\); \}, icon: "Saw icon"/);
   assert.match(diagnostics, /tools\.ts:2: "Build a bookshelf" in an array/);
-  assert.doesNotMatch(diagnostics, /Saw icon|miter|a-b|Done already/);
+  assert.doesNotMatch(diagnostics, /Saw icon|miter|Miter saw|a-b|Done already/);
+});
+
+test('one-word labels and label maps become getters', () => {
+  const input = 'const STATUS_LABELS = { open: "New", shipped: "Shipped" };\nconst KINDS = [{ value: "bug", label: "Bug" }];\nconst ROUTES = { home: "Home" };';
+  const result = extractSource(input, { filename: 'labels.ts' });
+  assert.match(result.source, /open: [^,]*$|get open\(\) \{ return i18nmd\("new"\); \}/m);
+  assert.match(result.source, /get shipped\(\) \{ return i18nmd\("shipped"\); \}/);
+  assert.match(result.source, /value: "bug", get label\(\) \{ return i18nmd\("bug"\); \}/);
+  assert.match(result.source, /const ROUTES = \{ home: "Home" \}/);
+});
+
+test('a count choice inside a sentence becomes a plural, and merges with its noun', () => {
+  const merged = extractSource('<p>{n} file{n === 1 ? "" : "s"} saved</p>');
+  assert.deepEqual(merged.catalog.messages.map(m => m.translations.en), ['{n, plural, one {# file} other {# files}} saved']);
+  assert.match(merged.source, /i18nmd\("\w+", \{ n: n \}\)/);
+  const alone = extractSource('<p>Saved {items.length === 1 ? "one copy" : "copies"} today</p>');
+  assert.deepEqual(alone.catalog.messages.map(m => m.translations.en), ['Saved {itemsCount, plural, one {one copy} other {copies}} today']);
 });
 test('the import goes with the other imports, or after leading comments', () => {
   const header = '// Copyright Example.\n/* The landing page. */\n';
   assert.equal(extractSource(header + 'export const A = () => <p>Hi</p>;\n').source, header.slice(0, -1) + '\nimport { i18nmd } from "./i18n";\n\nexport const A = () => <p>{i18nmd("hi")}</p>;\n');
   assert.equal(extractSource(header + 'import x from "x";\nimport y from "y";\n\nexport const A = () => <p>Hi</p>;\n').source, header + 'import x from "x";\nimport y from "y";\nimport { i18nmd } from "./i18n";\n\nexport const A = () => <p>{i18nmd("hi")}</p>;\n');
   assert.equal(extractSource('<p>Hi</p>;\n').source, 'import { i18nmd } from "./i18n";\n<p>{i18nmd("hi")}</p>;\n');
+});
+
+test('SVG paths are not text, and i18n-ignore keeps a value as written', () => {
+  const result = extractSource('const ICONS = ["M4 7h4l1.5-2h5L16 7h4a2 2 0 0 1 2 2v9a2", "M3 9h18v6H3z M8 9v6"];\nconst P = [{ label: /* i18n-ignore */ "Anthropic" }, { /* i18n-ignore */ label: "OpenAI" }, { label: "Local" }];', { filename: 'p.ts' });
+  assert.doesNotMatch(result.diagnostics.join('\n'), /M4|M3/);
+  assert.match(result.source, /label: \/\* i18n-ignore \*\/ "Anthropic"/);
+  assert.match(result.source, /label: "OpenAI"/);
+  assert.match(result.source, /get label\(\) \{ return i18nmd\("local"\); \}/);
 });

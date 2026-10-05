@@ -331,11 +331,13 @@ npx i18nmd extract src/account src/routes.tsx --out translations/account --in-pl
 
 - JSX text, keeping each sentence whole. Values inside a sentence become named placeholders: `{formatLength(kerf)}` becomes `{kerf}`, and `{items.length}` becomes `{itemsCount}`.
 - Inline elements such as `<b>`, `<a href>` and `<Link to>`, which become tags.
-- Wording chosen in code: `{busy ? "Saving…" : "Save"}` becomes two messages.
+- Wording chosen in code: `{busy ? "Saving…" : "Save"}` on its own becomes two messages. Inside a sentence it becomes a `select`: `Status: {busy ? "saving" : "saved"}` is `Status: {busy, select, yes {saving} other {saved}}`, and the code passes `busy ? "yes" : "no"`.
+- Counts chosen in code: `{n} file{n === 1 ? "" : "s"}` becomes `{n, plural, one {# file} other {# files}}`. A comparison with 1 (`=== 1`, `!== 1`, `> 1`) between two strings is a plural.
+- Labels in objects, one word or many: `{ label: "Drill" }` becomes `{ get label() { return i18nmd("drill"); } }`, so a language switch reaches it. The properties are `label`, `title`, `heading`, `description`, `hint`, `tooltip`, `caption`, `placeholder`, `summary` and the like. A map named for labels (`STATUS_LABELS`, `toolNames`) has every value converted.
 - Visible attributes: `alt`, `title`, `placeholder`, `label`, `aria-label`, `aria-description`.
 - Any string marked `/* i18n */`, or `/* i18n:token_name */` to choose its token.
 
-It leaves alone numbers, symbols and text without letters, addresses such as `example.com`, anything inside an element with `translate="no"` (code samples, commands, names), and anything it can't convert safely; those are listed with their file and line. A `translate="no"` element inside a sentence, such as a URL in `<code>`, becomes a placeholder, so the sentence stays whole.
+It leaves alone numbers, symbols and text without letters, SVG path data, anything marked `/* i18n-ignore */` (a brand name, a code), addresses such as `example.com`, anything inside an element with `translate="no"` (code samples, commands, names), and anything it can't convert safely; those are listed with their file and line. A `translate="no"` element inside a sentence, such as a URL in `<code>`, becomes a placeholder, so the sentence stays whole.
 
 It also flags:
 
@@ -346,6 +348,17 @@ It also flags:
 Each message's context names its component and the nearest heading, label or `aria-label`: `Text in <p> in Pitch, under the heading "Bring your own agent"`. Edit it to say what a translator needs; extract never rewrites context. The import goes after the file's other imports, or below its leading comments.
 
 Token names come from the words of the message, such as `welcome_back`, and never change when you edit the text. Running extract again keeps every token and translation, and only adds new strings. Without `--in-place` it writes converted copies to `--dest` (default `.i18n/src`) and leaves your sources alone. `--out translations/<division>` extracts into a division.
+
+### Keeping text out of code
+
+`i18nmd check --hardcoded src` lists the text people read that is still written in code, found the way `extract` finds it. To adopt i18nmd gradually, record what is there now and fail only when a file gains more:
+
+```sh
+npx i18nmd check --hardcoded src --baseline i18n-baseline.json --write-baseline   # once, and after moving strings out
+npx i18nmd check --hardcoded src --baseline i18n-baseline.json                   # in tests or CI
+```
+
+A file that gains text fails with each line and its text. `--skip admin/,fixtures` leaves out paths containing those parts.
 
 The extractor handles the mechanical part. [PROMPT.md](PROMPT.md) is a prompt for a coding agent to do the rest: strings in plain `.ts` files and objects, sentences built in code, and checking every screen.
 

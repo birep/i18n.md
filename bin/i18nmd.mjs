@@ -34,6 +34,9 @@ Keep files in shape
   check [--strict] [--in src [--fix]]      Validate; --strict fails on anything missing or stale;
                                            --in checks code imports each division it calls and
                                            lists tokens it never calls (--skip division,...).
+  check --hardcoded src [--baseline f.json [--write-baseline]] [--skip part,...]
+                                           Text people read still written in code; with a
+                                           baseline, fails only when a file gains more.
   rename <old> <new> [--in src]            Rename a token everywhere, including source code calls.
   join --out all.md / split <all.md> --out <dir>
                                            One Markdown file with every language, and back.
@@ -84,6 +87,41 @@ async function filesAt(input, { html = false } = {}) {
     else if (entry.isFile() && wanted.test(file) && !/\.(test|spec)\.[jt]sx?$/.test(file) && !/\.d\.[cm]?ts$/.test(file)) files.push(file);
   }
   return files;
+}
+
+/**
+ * check --hardcoded <dir>: text people read that is still written in code, found
+ * the way extract finds it. With --baseline, each file may have no more than the
+ * baseline records, so a project can adopt i18nmd gradually; --write-baseline
+ * records the current counts (run it after moving strings out, never to pass).
+ */
+async function checkHardcoded(options) {
+  const skip = (options.skip || '').split(',').map(s => s.trim()).filter(Boolean);
+  const findings = [];
+  for (const file of await filesAt(options.hardcoded)) {
+    const rel = path.relative(process.cwd(), file).split(path.sep).join('/');
+    if (skip.some(part => rel.includes(part))) continue;
+    let result;
+    try { result = extractSource(await readFile(file, 'utf8'), { filename: rel, analyze: true }); }
+    catch (error) { console.warn(`i18nmd: skipped ${rel}: ${error.message}`); continue; }
+    for (const f of result.findings) findings.push({ file: rel, ...f });
+  }
+  const counts = {};
+  for (const f of findings) counts[f.file] = (counts[f.file] ?? 0) + 1;
+  const sorted = Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
+  const total = findings.length;
+  if (options['write-baseline']) {
+    if (!options.baseline) throw new Error('--write-baseline needs --baseline <file>.');
+    await save(options.baseline, JSON.stringify(sorted, null, 2) + '\n');
+    console.log(`Recorded ${plural(total, 'hard-coded string')} in ${plural(Object.keys(sorted).length, 'file')} to ${options.baseline}.`);
+    return;
+  }
+  const baseline = options.baseline && await exists(options.baseline) ? JSON.parse(await readFile(options.baseline, 'utf8')) : {};
+  const grown = Object.keys(sorted).filter(file => sorted[file] > (baseline[file] ?? 0));
+  for (const file of grown) for (const f of findings.filter(x => x.file === file)) console.error(`${f.file}:${f.line}: ${JSON.stringify(f.text)}`);
+  if (grown.length) throw new Error(`${plural(grown.length, 'file')} gained text written in code. Move it into the language file (i18nmd extract <file> --in-place) or wrap code and names in translate="no".`);
+  const shrunk = Object.keys(baseline).filter(file => (sorted[file] ?? 0) < baseline[file]);
+  console.log(`${plural(total, 'hard-coded string')}, none new.${shrunk.length ? ` ${plural(shrunk.length, 'file')} went down; --write-baseline records it.` : ''}`);
 }
 
 async function save(file, text) { await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, text); }
@@ -235,14 +273,14 @@ async function main() {
   if (!command || ['help', '--help', '-h'].includes(command)) { console.log(help); return; }
   if (['--version', '-v', 'version'].includes(command)) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); return; }
   const aliases = { locale: 'source', language: 'locale-expr' };
-  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|budget|reasoning|max-output|only|dir)$/;
+  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|budget|reasoning|max-output|hardcoded|baseline|only|dir)$/;
   const options = Object.create(null), positional = [];
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === '--add' && command === 'add') continue;
     if (!arg.startsWith('--')) { positional.push(arg); continue; }
     let flag = arg.slice(2);
-    if (!valued.test(flag) && !['merge', 'strict', 'dry-run', 'in-place', 'eager', 'fix', 'yes'].includes(flag)) throw new Error(`Unknown option: ${arg}`);
+    if (!valued.test(flag) && !['merge', 'strict', 'dry-run', 'in-place', 'eager', 'fix', 'yes', 'write-baseline'].includes(flag)) throw new Error(`Unknown option: ${arg}`);
     flag = aliases[flag] || flag;
     if (Object.hasOwn(options, flag)) throw new Error(`Duplicate option: ${arg}`);
     if (!valued.test(flag)) options[flag] = true;
@@ -272,6 +310,7 @@ async function main() {
     const targets = Object.keys(ws.catalog.languages).filter(l => l !== ws.catalog.source && (!only || only.includes(l))).map(code => ({ ...resolveLanguage(code), code, name: ws.catalog.languages[code] }));
     await translate(ws, targets, options); return;
   }
+  if (command === 'check' && options.hardcoded) { await checkHardcoded(options); return; }
   if (command === 'check') {
     const ws = await open(one(), options); ws.warn();
     if (options.strict) {

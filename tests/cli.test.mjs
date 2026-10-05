@@ -300,3 +300,22 @@ test('accept records translations edited before a sync; compile --only picks div
     assert.match(run('compile', '--only', 'blog').stderr, /No division blog/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('check --hardcoded counts text written in code and holds a baseline', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-hard-'));
+  const run = (...args) => new Promise(resolve => execFile(process.execPath, [cli, ...args], { cwd: root }, (error, stdout, stderr) => resolve({ status: error ? error.code ?? 1 : 0, stdout, stderr })));
+  try {
+    await mkdir(path.join(root, 'src'));
+    await writeFile(path.join(root, 'src', 'Page.tsx'), 'const LABELS = [{ id: "a", label: "Drill" }];\nexport const Page = () => <p title="Help">Hello there</p>;\n');
+    let result = await run('check', '--hardcoded', 'src', '--baseline', 'base.json', '--write-baseline');
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(await readFile(path.join(root, 'base.json'), 'utf8')), { 'src/Page.tsx': 3 });
+    assert.equal((await run('check', '--hardcoded', 'src', '--baseline', 'base.json')).status, 0);
+    await writeFile(path.join(root, 'src', 'Page.tsx'), 'const LABELS = [{ id: "a", label: "Drill" }];\nexport const Page = () => <><p title="Help">Hello there</p><h2>A new heading</h2></>;\n');
+    result = await run('check', '--hardcoded', 'src', '--baseline', 'base.json');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /src\/Page\.tsx:2: .*Hello there/);
+    // Without a baseline every string counts.
+    assert.notEqual((await run('check', '--hardcoded', 'src')).status, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
