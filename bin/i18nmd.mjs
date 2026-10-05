@@ -22,6 +22,7 @@ Translate with an LLM
       Endpoint: I18NMD_BASE_URL + I18NMD_API_KEY (+ I18NMD_MODEL), or ANTHROPIC_API_KEY,
       or OPENAI_API_KEY. Flags: --base-url --model --provider anthropic|openai --batch N (default: the whole file in one request)
       --budget 200000 (estimated tokens before --yes is required) --reasoning low|medium|high --yes
+      --max-output 8000 (the model's reply limit; requests are sized to fit it)
       --dry-run (list the work without calling the API).
 
 Keep files in shape
@@ -190,7 +191,7 @@ async function translate(ws, targets, options) {
   const batchSize = options.batch ? Number(options.batch) : Infinity;
   if (batchSize !== Infinity && (!Number.isInteger(batchSize) || batchSize < 1)) throw new Error('--batch must be a positive whole number.');
   // Price the run before spending anything; a big run needs --yes.
-  const estimate = estimateTokens(catalog, work, batchSize);
+  const estimate = estimateTokens(catalog, work, batchSize, config.maxOutput);
   const budget = Number(options.budget || 200000);
   console.log(`Using ${config.model} at ${config.baseUrl}: about ${estimate.requests} requests, ${estimate.input.toLocaleString('en')} input and ${estimate.output.toLocaleString('en')} output tokens${config.reasoning ? ', plus reasoning' : ''}.`);
   if (estimate.input + estimate.output > budget && !options.yes) throw new Error(`That is over the ${budget.toLocaleString('en')}-token budget. Rerun with --yes to spend it, --budget to raise the limit, or --only to translate less.`);
@@ -234,7 +235,7 @@ async function main() {
   if (!command || ['help', '--help', '-h'].includes(command)) { console.log(help); return; }
   if (['--version', '-v', 'version'].includes(command)) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); return; }
   const aliases = { locale: 'source', language: 'locale-expr' };
-  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|budget|reasoning|only|dir)$/;
+  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|budget|reasoning|max-output|only|dir)$/;
   const options = Object.create(null), positional = [];
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];

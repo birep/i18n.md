@@ -369,7 +369,7 @@ export I18NMD_BASE_URL=… I18NMD_API_KEY=… I18NMD_MODEL=…   # overrides bot
 
 The provider is detected from the URL or key; `--provider`, `--base-url`, `--model` and `--batch` override it per run.
 
-Each language's missing messages go to the model as one Markdown file, in one request, with each context line and any earlier translation of a changed message. Only a reply cut off by the model's output limit is split, in halves. All languages run at once. Every reply is checked like a hand-written translation. A message that fails is retried once with the error, and anything still failing is reported and falls back to the source language. Progress is saved as each reply arrives, so an interrupted run loses nothing.
+Each language's missing messages go to the model as one Markdown file, in as few requests as fit the model's output limit (`--max-output`, 8,000 tokens by default), with each context line and any earlier translation of a changed message. A reply that is cut off anyway is split in halves and retried. All languages run at once. Every reply is checked like a hand-written translation. A message that fails is retried once with the error, and anything still failing is reported and falls back to the source language. Progress is saved as each reply arrives, so an interrupted run loses nothing.
 
 Before sending anything, `translate` prints an estimate of the tokens it will use, and stops if that is over `--budget` (200,000 tokens by default) unless you pass `--yes`. After the run it prints the tokens actually used. Reasoning is off unless you ask for it with `--reasoning low|medium|high`; reasoning tokens bill as output and translation rarely needs them.
 

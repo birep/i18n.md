@@ -29,3 +29,13 @@ test('a reply cut off by the output limit splits the file in halves', async () =
   assert.deepEqual(sizes, [6, 3, 3]);
   assert.equal(Object.keys(ok).length, 6);
 });
+
+test('requests are sized to fit the output limit before anything is sent', async () => {
+  const long = '# English\n\n' + Array.from({ length: 40 }, (_, i) => `## m${i}\n\n\`\`\`icu\n${'A long sentence of interface text. '.repeat(6)}\n\`\`\`\n`).join('\n');
+  const catalog = parseCatalog(long, { locale: 'en' });
+  const sizes = [];
+  const chatImpl = async (_config, _system, user) => { sizes.push((user.match(/^## /gm) ?? []).length); return reply(user); };
+  await translateLanguage(catalog, { code: 'fr', name: 'Français' }, catalog.messages.map(m => m.key), { maxOutput: 1000 }, { chatImpl });
+  assert.ok(sizes.length > 1);
+  assert.equal(sizes.reduce((a, b) => a + b, 0), 40);
+});

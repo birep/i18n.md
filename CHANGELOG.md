@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- **Requests fit the model's output limit before they are sent.** 0.5.0 sent each language as one request, and when the reply ran past the model's limit (8,000 tokens on DeepSeek) the cut-off reply was paid for, thrown away and split; a run estimated at 250,000 tokens used 710,000. Messages are now grouped so each reply fits within 60% of `--max-output` (8,000 by default, also sent as `max_tokens`), and the estimate counts those requests. Splitting a cut-off reply stays as a fallback.
+
 ## 0.5.0
 
 Translation cost far more than it should have: one run of about 1,650 strings into nine languages used over a million input tokens.
