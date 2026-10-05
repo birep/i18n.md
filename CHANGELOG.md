@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.4
+
+The extractor now follows display text passed through local rendering helpers and detects more component properties.
+
+- Local helper arguments that reach displayed text are extracted, including aliases, forwarding calls, templates and fallbacks. Lexical scopes keep shadowed functions separate, and identifier and callback arguments stay unchanged.
+- Custom component display properties accept literal and conditional text, including readable `name` and `spec` values. CSS class properties and native machine attributes stay unchanged.
+- Mixed getter and literal label maps, notice setters, DOM text assignments and visible `setAttribute` values share the existing extraction path. State keys passed to `setStatus` stay unchanged.
+- Labels made by replacing or splitting identifier separators are reported instead of silently passing the hard-coded text check. Runtime identifiers require an explicit catalog mapping; extraction cannot invent their vocabulary.
+- Explicit token annotations no longer produce overlapping edits in arrow results or helper arguments. Apostrophes around template placeholders preserve their quoted values.
+
 ## 0.6.3
 
 The extractor and hard-coded text check now follow more expressions that display text, and the check fails when it cannot inspect a source file.

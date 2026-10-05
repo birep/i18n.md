@@ -371,3 +371,28 @@ test('check --hardcoded cannot silently skip a source it fails to parse', async 
     assert.equal(skipped.status, 0, skipped.stderr);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('CLI checks helper arguments and component props, and reports computed labels after extraction', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-display-'));
+  const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  try {
+    await mkdir(path.join(root, 'src'));
+    const file = path.join(root, 'src', 'Page.tsx');
+    await writeFile(file, 'function Page() { const card = (id, words) => <p data-testid={id}>{words}</p>; return <>{card("account", "Create an account")}<DocumentCard name="Account summary" spec={ready ? "Recent activity; approximate totals" : "Choose an account first"} /></>; }');
+    let result = run('check', '--hardcoded', 'src');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Create an account/);
+    assert.match(result.stderr, /Account summary/);
+    assert.match(result.stderr, /Recent activity/);
+    result = run('extract', 'src', '--out', 'translations/ui', '--in-place');
+    assert.equal(result.status, 0, result.stderr);
+    const converted = await readFile(file, 'utf8');
+    assert.match(converted, /card\("account", i18nmd.ui\(/);
+    assert.match(converted, /name=\{i18nmd.ui\(/);
+    assert.equal(run('check', '--hardcoded', 'src').status, 0);
+    await writeFile(path.join(root, 'src', 'labels.ts'), 'export function categoryLabel(key) { return key.replace(/_/g, " "); }');
+    result = run('check', '--hardcoded', 'src');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /display text is derived from an identifier/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

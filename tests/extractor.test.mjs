@@ -199,7 +199,7 @@ test('interface text chosen in code is converted where it is evaluated each time
     'function panel(p) { let title = "Inspector"; if (p) title = "Move"; flash({ kind: "ok", text: p ? "Archived" : "Restored" }); return title; }',
     'const SIGN_IN_REASON = "Sign in to vote";',
     'function ids(k) { return k ? "cut" : "ref"; }',
-    'function who(s) { return /* i18n-ignore */ "Dusty"; }',
+    'function who(s) { return /* i18n-ignore */ "Example Brand"; }',
   ].join('\n');
   const result = extractSource(input, { filename: 'p.tsx' });
   const texts = result.catalog.messages.map(m => m.translations.en);
@@ -307,4 +307,121 @@ test('TypeScript wrappers and template opt-outs remain valid and idempotent', ()
   assert.match(result.source, /satisfies string/);
   assert.match(result.source, /value: \/\* i18n-ignore \*\/ "Example Brand"/);
   assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+});
+
+test('local rendering helpers expose only arguments that reach display text', () => {
+  const input = `function View() {
+    const card = (id, a, b, click) => <button data-testid={id} onClick={click}><h2>{a}</h2><p>{b}</p></button>;
+    return <section>{card("account-card", "Create account", "Choose a profile.", save)}</section>;
+  }`;
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['Create account', 'Choose a profile.']);
+  assert.match(result.source, /card\("account-card", i18nmd/);
+  assert.equal(extractSource(input, { analyze: true }).findings.length, 2);
+  assert.equal(extractSource(result.source).replacements, 0);
+});
+
+test('helper text flows through aliases and forwarding calls with lexical shadowing', () => {
+  const input = `function card(id, heading) { const copy = heading; return <h2 data-testid={id}>{copy}</h2>; }
+  const alias = card;
+  function forward(k, words) { return alias(k, words); }
+  function View() { return <>{forward("account", ready ? "Ready" : "Waiting")}</>; }
+  function unrelated(card) { card("literal-id", "Leave this alone"); }
+  function shadow() { const alias = log; alias("trace-id", "Leave this too"); }`;
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['Ready', 'Waiting']);
+  assert.match(result.source, /card\("literal-id", "Leave this alone"\)/);
+  assert.match(result.source, /alias\("trace-id", "Leave this too"\)/);
+});
+
+test('custom component display props include literals and choices without changing machine props', () => {
+  const input = 'function View() { return <DocumentCard name="Account summary" spec={ready ? "Recent activity; approximate totals" : "Choose an account first"} hint="choose a file" pillClassName={bad ? "card--warning" : undefined} id="account-card" />; }';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['Account summary', 'Recent activity; approximate totals', 'Choose an account first', 'choose a file']);
+  assert.match(result.source, /pillClassName=\{bad \? "card--warning" : undefined\}/);
+  assert.equal(extractSource(input, { analyze: true }).findings.length, 4);
+  assert.equal(extractSource(result.source).replacements, 0);
+});
+
+test('computed identifier labels are reported instead of silently accepted', () => {
+  const input = 'function categoryLabel(id) { const words = id.replace(/_/g, " "); return words.charAt(0).toUpperCase() + words.slice(1); }';
+  const result = extractSource(input);
+  assert.match(result.diagnostics.join('\n'), /display text is derived from an identifier/);
+  assert.ok(extractSource(input, { analyze: true }).findings.length);
+  assert.doesNotMatch(result.source, /i18nmd\(/);
+  assert.equal(extractSource('function cacheKey(id) { return id.replace(/_/g, " "); }', { analyze: true }).findings.length, 0);
+  assert.equal(extractSource('function categoryLabel(id) { return /* i18n-ignore */ id.replace(/_/g, " "); }', { analyze: true }).findings.length, 0);
+});
+
+test('humanized labels used directly in JSX and helper text arguments are reported', () => {
+  const input = 'function View(key) { const card = text => <p>{text}</p>; return <>{card(key.replace(/[-_]+/g, " "))}<span>{key.split("_").join(" ")}</span></>; }';
+  assert.equal(extractSource(input, { analyze: true }).findings.length, 2);
+});
+
+test('mixed label maps, display state setters and DOM text assignments share extraction', () => {
+  const input = 'const CATEGORY_LABELS = { get current() { return i18nmd("current"); }, archived: "Archived" };\nfunction View() { setNotice("Request did not save."); element.textContent = "Choose a profile"; element.setAttribute("aria-label", "Close the preview"); element.setAttribute("data-id", "internal-id"); }';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['Archived', 'Request did not save.', 'Choose a profile', 'Close the preview']);
+  assert.match(result.source, /get archived\(\)/);
+  assert.match(result.source, /setAttribute\("data-id", "internal-id"\)/);
+  assert.equal(extractSource(result.source).replacements, 0);
+});
+
+
+test('rendering inference respects opt-outs and leaves state keys and predicates unchanged', () => {
+  const input = 'function card(id, words) { return <code translate="no">{words}</code>; } function View() { setStatus("Error"); setStatus("ready"); return <>{card("sample", "Literal example")}{card("sample", /* i18n-ignore */ "Another example")}</>; }';
+  const result = extractSource(input);
+  assert.equal(result.replacements, 0);
+  assert.equal(extractSource(input, { analyze: true }).findings.length, 0);
+});
+
+test('helper text inside enclosing sentences is extracted without overlapping edits', () => {
+  const input = 'function personLabel(id, words) { return words; } function caption() { return `Hello ${personLabel("person-id", "visitor")}.`; }';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['visitor', 'Hello {personLabel}.']);
+  assert.match(result.source, /personLabel\("person-id", i18nmd\("visitor"\)\)/);
+  assert.equal(extractSource(result.source).replacements, 0);
+});
+
+test('annotated helper arguments and arrow results keep explicit tokens and valid syntax', () => {
+  const input = 'const headline = () => /* i18n:welcome */ "Welcome back"; function titleLabel(key, words) { return words; } function caption() { return titleLabel("stable-key", /* i18n:visitor */ "New visitor"); }';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.key), ['welcome', 'visitor']);
+  assert.equal(extractSource(result.source).replacements, 0);
+});
+
+test('apostrophes around template placeholders preserve quoted values', () => {
+  const result = extractSource('function caption(name) { return `Did you mean \'${name}\'?`; }');
+  const compiled = compileCatalog(result.catalog);
+  const t = createI18n(compiled);
+  assert.equal(t(result.catalog.messages[0].key, 'en', { name: 'Alex' }), "Did you mean 'Alex'?");
+});
+
+
+test('helper fallback conversion preserves short-circuit evaluation and call order', () => {
+  const input = 'function personLabel(id, words) { return words; } function caption(getValue) { return personLabel("stable-id", getValue() ?? "Anonymous visitor"); }';
+  const result = extractSource(input);
+  const caption = new Function('i18nmd', result.source.replace(/^import[^\n]+\n/m, '') + '; return caption;')(key => 'translated:' + key);
+  let calls = 0;
+  assert.equal(caption(() => { calls++; return null; }), 'translated:anonymous_visitor');
+  assert.equal(calls, 1);
+  assert.equal(caption(() => { calls++; return 'Alex'; }), 'Alex');
+  assert.equal(calls, 2);
+});
+
+
+test('reassigned helpers are not assumed to retain their rendering signature', () => {
+  const input = 'function card(id, words) { return <p>{words}</p>; } function View() { card = log; card("trace-id", "Leave this unchanged"); }';
+  const result = extractSource(input);
+  assert.equal(result.replacements, 0);
+  assert.equal(extractSource(input, { analyze: true }).findings.length, 0);
+});
+
+
+test('identifier-label warnings survive extraction of enclosing sentences', () => {
+  const input = 'function categoryLabel(key) { return `Category: ${key.replace(/_/g, " ")}`; } function View(key) { return <p>Account category: {key.split("_").join(" ")}</p>; }';
+  const result = extractSource(input);
+  assert.equal(result.diagnostics.filter(d => d.includes('display text is derived')).length, 2);
+  assert.equal(extractSource(input, { analyze: true }).findings.filter(f => f.text.includes('display text is derived')).length, 2);
+  assert.equal(extractSource(result.source, { analyze: true }).findings.filter(f => f.text.includes('display text is derived')).length, 2);
 });
