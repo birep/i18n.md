@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+Translation cost far more than it should have: one run of about 1,650 strings into nine languages used over a million input tokens.
+
+- **The whole file in one request.** A language's missing messages now go out as one Markdown file instead of batches of 40, so the instructions are sent once per language rather than once per 40 messages. A reply cut off by the model's output limit is split in halves and retried. `--batch <n>` still caps a request.
+- **No glossary.** Every request used to carry 40 existing translations; with the whole file in one request the model sees all the terms together.
+- **A price before the run.** `translate` prints its estimated requests and tokens, and stops above `--budget` (200,000 tokens by default) unless `--yes` is passed. It prints the tokens actually used afterwards.
+- **Reasoning is off unless asked for.** `--reasoning low|medium|high` (or `I18NMD_REASONING`) sends `reasoning_effort` to OpenAI-compatible endpoints.
+- **All languages and requests run at once,** instead of four languages at a time with each language's batches one after another.
+
 ## 0.4.0
 
 Findings from moving a real app (about 550 strings in 12 languages) onto i18nmd.

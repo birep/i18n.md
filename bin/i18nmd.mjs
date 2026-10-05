@@ -9,7 +9,7 @@ import { extractSource, missingDivisionImports } from '../lib/extractor.mjs';
 import { extractHtml, renderHtml } from '../lib/html.mjs';
 import { lockPathFor, findLock, namedRoot, readLock, serializeLock, report, syncLock, markCurrent } from '../lib/lock.mjs';
 import { resolveLanguage, topLanguages, RANKED } from '../lib/languages.mjs';
-import { llmConfig, translateLanguage } from '../lib/llm.mjs';
+import { estimateTokens, llmConfig, translateLanguage } from '../lib/llm.mjs';
 import { importMessages, exportMessages, FORMATS } from '../lib/interop.mjs';
 
 const help = `i18nmd — one Markdown file per language
@@ -20,7 +20,8 @@ Translate with an LLM
   i18nmd --top 10                          Add the 10 most widely spoken languages.
   i18nmd translate [--only fr,de]          Fill missing and outdated translations.
       Endpoint: I18NMD_BASE_URL + I18NMD_API_KEY (+ I18NMD_MODEL), or ANTHROPIC_API_KEY,
-      or OPENAI_API_KEY. Flags: --base-url --model --provider anthropic|openai --batch 40
+      or OPENAI_API_KEY. Flags: --base-url --model --provider anthropic|openai --batch N (default: the whole file in one request)
+      --budget 200000 (estimated tokens before --yes is required) --reasoning low|medium|high --yes
       --dry-run (list the work without calling the API).
 
 Keep files in shape
@@ -186,9 +187,13 @@ async function translate(ws, targets, options) {
   for (const { target, keys, isNew } of work) console.log(`${target.name} (${target.code}): ${plural(keys.length, 'message')} to translate${isNew ? ' (new language)' : ''}`);
   if (options['dry-run']) return;
   const config = llmConfig(options);
-  console.log(`Using ${config.model} at ${config.baseUrl}.`);
-  const batchSize = Number(options.batch || 40);
-  if (!Number.isInteger(batchSize) || batchSize < 1) throw new Error('--batch must be a positive whole number.');
+  const batchSize = options.batch ? Number(options.batch) : Infinity;
+  if (batchSize !== Infinity && (!Number.isInteger(batchSize) || batchSize < 1)) throw new Error('--batch must be a positive whole number.');
+  // Price the run before spending anything; a big run needs --yes.
+  const estimate = estimateTokens(catalog, work, batchSize);
+  const budget = Number(options.budget || 200000);
+  console.log(`Using ${config.model} at ${config.baseUrl}: about ${estimate.requests} requests, ${estimate.input.toLocaleString('en')} input and ${estimate.output.toLocaleString('en')} output tokens${config.reasoning ? ', plus reasoning' : ''}.`);
+  if (estimate.input + estimate.output > budget && !options.yes) throw new Error(`That is over the ${budget.toLocaleString('en')}-token budget. Rerun with --yes to spend it, --budget to raise the limit, or --only to translate less.`);
   let failures = 0;
   const run = async ({ target, keys, isNew }) => {
     if (isNew) catalog.languages[target.code] = target.name;
@@ -210,9 +215,8 @@ async function translate(ws, targets, options) {
     for (const [key, error] of Object.entries(failed)) { failures++; console.warn(`i18nmd: ${target.code} ${key}: ${error}`); }
     if (isNew && !done) delete catalog.languages[target.code];
   };
-  // A few languages at a time keeps within typical rate limits.
-  const pending = [...work];
-  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => { while (pending.length) await run(pending.shift()); }));
+  await Promise.all(work.map(run));
+  console.log(`Used ${config.usage.input.toLocaleString('en')} input and ${config.usage.output.toLocaleString('en')} output tokens in ${config.usage.requests} requests.`);
   if (failures) { process.exitCode = 1; console.warn(`i18nmd: ${plural(failures, 'message')} could not be translated; they fall back to ${catalog.source}. Run i18nmd translate to retry.`); }
 }
 
@@ -230,14 +234,14 @@ async function main() {
   if (!command || ['help', '--help', '-h'].includes(command)) { console.log(help); return; }
   if (['--version', '-v', 'version'].includes(command)) { console.log(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version); return; }
   const aliases = { locale: 'source', language: 'locale-expr' };
-  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|only|dir)$/;
+  const valued = /^(url|skip|out|source|locale|language|locale-expr|dest|runtime|target|table|languages|syntax|in|from|to|model|base-url|provider|batch|budget|reasoning|only|dir)$/;
   const options = Object.create(null), positional = [];
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === '--add' && command === 'add') continue;
     if (!arg.startsWith('--')) { positional.push(arg); continue; }
     let flag = arg.slice(2);
-    if (!valued.test(flag) && !['merge', 'strict', 'dry-run', 'in-place', 'eager', 'fix'].includes(flag)) throw new Error(`Unknown option: ${arg}`);
+    if (!valued.test(flag) && !['merge', 'strict', 'dry-run', 'in-place', 'eager', 'fix', 'yes'].includes(flag)) throw new Error(`Unknown option: ${arg}`);
     flag = aliases[flag] || flag;
     if (Object.hasOwn(options, flag)) throw new Error(`Duplicate option: ${arg}`);
     if (!valued.test(flag)) options[flag] = true;

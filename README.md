@@ -369,7 +369,9 @@ export I18NMD_BASE_URL=… I18NMD_API_KEY=… I18NMD_MODEL=…   # overrides bot
 
 The provider is detected from the URL or key; `--provider`, `--base-url`, `--model` and `--batch` override it per run.
 
-Messages go in batches, each with its context line, existing translations as a glossary, and any earlier translation of a changed message. Every reply is checked like a hand-written translation. A message that fails is retried once with the error, and anything still failing is reported and falls back to the source language. Progress is saved after every batch, so an interrupted run loses nothing.
+Each language's missing messages go to the model as one Markdown file, in one request, with each context line and any earlier translation of a changed message. Only a reply cut off by the model's output limit is split, in halves. All languages run at once. Every reply is checked like a hand-written translation. A message that fails is retried once with the error, and anything still failing is reported and falls back to the source language. Progress is saved as each reply arrives, so an interrupted run loses nothing.
+
+Before sending anything, `translate` prints an estimate of the tokens it will use, and stops if that is over `--budget` (200,000 tokens by default) unless you pass `--yes`. After the run it prints the tokens actually used. Reasoning is off unless you ask for it with `--reasoning low|medium|high`; reasoning tokens bill as output and translation rarely needs them.
 
 ## Keeping translations current
 
@@ -447,7 +449,7 @@ FormatJS and next-intl already use ICU, so conversion is lossless, and FormatJS 
 | `render <site>` | `--out dist`, `--url https://example.com` |
 | `extract <src…>` | `--in-place`, `--out translations/<division>`, `--source en`, `--runtime src/i18n/i18n`, `--dest .i18n/src`, `--locale-expr locale` (calls use `i18nmd.in(locale)`) |
 | `compile` | `--out src/i18n`, `--target ts\|js\|json\|python`, `--eager`, `--only <division,…>` or `--skip <division,…>` |
-| `--add <language>`, `--top <n>`, `translate` | `--only fr,de`, `--dry-run`, `--provider`, `--base-url`, `--model`, `--batch 40`; a path picks a division: `--add zh translations/site` |
+| `--add <language>`, `--top <n>`, `translate` | `--only fr,de`, `--dry-run`, `--provider`, `--base-url`, `--model`, `--budget`, `--yes`, `--reasoning`, `--batch <n>`; a path picks a division: `--add zh translations/site` |
 | `accept <token…>` | `--only fr,de` |
 | `status`, `check`, `sync` | `--strict`, `--in src`, `--fix`, `--skip` |
 | `rename <old> <new>` | `--in src` |

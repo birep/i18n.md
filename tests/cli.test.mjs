@@ -98,7 +98,19 @@ test('--add and translate fill languages through Anthropic or OpenAI-compatible 
     assert.equal(llm.requests[0].headers.authorization, 'Bearer key');
     assert.match(llm.requests[0].body.messages[1].content, /earlier translation[\s\S]*\[fr\] Hello/);
     assert.match((await run({}, 'status')).stdout, /Français \(fr\): 2\/2 done[\s\S]*Pirate \(pirate\): 1\/2 done, 1 stale/);
+    // No reasoning unless asked, and the run reports what it spent.
+    assert.equal(llm.requests[0].body.reasoning_effort, undefined);
+    assert.match(result.stdout, /about 1 requests[\s\S]*Used \d+ input and \d+ output tokens in 1 requests/);
     assert.notEqual((await run({}, 'check', '--strict')).status, 0);
+    // Over budget, nothing is sent until --yes.
+    llm.requests.length = 0;
+    result = await run({ I18NMD_BASE_URL: `${llm.url}/v1`, I18NMD_API_KEY: 'key', I18NMD_MODEL: 'local-model' }, 'translate', '--only', 'pirate', '--budget', '10');
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stderr, /over the 10-token budget/);
+    assert.equal(llm.requests.length, 0);
+    result = await run({ I18NMD_BASE_URL: `${llm.url}/v1`, I18NMD_API_KEY: 'key', I18NMD_MODEL: 'local-model' }, 'translate', '--only', 'pirate', '--budget', '10', '--yes', '--reasoning', 'low');
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(llm.requests[0].body.reasoning_effort, 'low');
   } finally { llm.close(); await rm(root, { recursive: true, force: true }); }
 });
 
