@@ -97,15 +97,16 @@ async function filesAt(input, { html = false } = {}) {
  */
 async function checkHardcoded(options) {
   const skip = (options.skip || '').split(',').map(s => s.trim()).filter(Boolean);
-  const findings = [];
+  const findings = [], failures = [];
   for (const file of await filesAt(options.hardcoded)) {
     const rel = path.relative(process.cwd(), file).split(path.sep).join('/');
     if (skip.some(part => rel.includes(part))) continue;
     let result;
     try { result = extractSource(await readFile(file, 'utf8'), { filename: rel, analyze: true }); }
-    catch (error) { console.warn(`i18nmd: skipped ${rel}: ${error.message}`); continue; }
+    catch (error) { failures.push(`${rel}: ${error.message}`); continue; }
     for (const f of result.findings) findings.push({ file: rel, ...f });
   }
+  if (failures.length) throw new Error(`Could not check source files:\n${failures.join('\n')}`);
   const counts = {};
   for (const f of findings) counts[f.file] = (counts[f.file] ?? 0) + 1;
   const sorted = Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));

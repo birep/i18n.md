@@ -208,3 +208,103 @@ test('interface text chosen in code is converted where it is evaluated each time
   assert.match(result.diagnostics.join('\n'), /"Sign in to vote" is set once when the module loads/);
   assert.match(result.source, /title=\{open \? i18nmd\("hide_the_chat"\) : i18nmd\("show_the_chat"\)\}/);
 });
+
+
+test('logical JSX fallbacks and nested choices become messages without changing conditions', () => {
+  const input = 'const Card = p => <><h2>{p.heading ?? "No entries yet."}</h2><p>{p.author || "Guest"}</p><span>{p.ready && "ready"}</span><p>{p.name ?? `Welcome ${p.user}`}</p><p>{p.mode === "active" ? <b>{p.label ?? "Details"}</b> : "waiting"}</p></>;';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['No entries yet.', 'Guest', 'ready', 'Welcome {user}', 'Details', 'waiting']);
+  assert.match(result.source, /p\.heading \?\? i18nmd\("no_entries_yet"\)/);
+  assert.match(result.source, /p\.author \|\| i18nmd\("guest"\)/);
+  assert.match(result.source, /p\.ready && i18nmd\("ready"\)/);
+  assert.match(result.source, /p\.mode === "active"/);
+  assert.equal(result.diagnostics.length, 0);
+  assert.equal(extractSource(input, { analyze: true }).findings.length, 6);
+  assert.equal(extractSource(result.source, { existing: result.catalog }).source, result.source);
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+});
+
+test('fallbacks inside whole sentences and visible attributes are extracted too', () => {
+  const input = '<><p>Hello {name ?? "friend"}!</p><button title={hint ?? `Open ${section}`} aria-label={label || "open"}>Open</button><input placeholder={placeholder ?? "search"} /></>';
+  const result = extractSource(input);
+  const texts = result.catalog.messages.map(m => m.translations.en);
+  for (const text of ['friend', 'Hello {name}!', 'Open {section}', 'open', 'Open', 'search']) assert.ok(texts.includes(text), text);
+  assert.match(result.source, /name: name \?\? i18nmd\("friend"\)/);
+  const token = result.catalog.messages.find(m => m.translations.en === 'Open {section}').key;
+  assert.ok(result.source.includes(`title={hint ?? i18nmd("${token}", { section: section })}`));
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+});
+
+test('templates in returned text, label defaults and state setters keep runtime semantics', () => {
+  const input = 'function caption(name, heading = `Hello ${name}`) { let title = heading ?? `Welcome ${name}`; setError(detail ?? `Request failed (${code})`); return title || `Hello ${name}`; }';
+  const result = extractSource(input);
+  const texts = result.catalog.messages.map(m => m.translations.en);
+  for (const text of ['Hello {name}', 'Welcome {name}', 'Request failed ({code})']) assert.ok(texts.includes(text), text);
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+  const runtimeInput = 'function message(getName) { return getName() ?? "Unknown person"; }';
+  const converted = extractSource(runtimeInput).source.replace(/^import .*\n/, '');
+  let lookups = 0, translations = 0;
+  const get = new Function('i18nmd', converted + '\nreturn message;')(key => { translations++; return 'translated'; });
+  assert.equal(get(() => { lookups++; return 'Ada'; }), 'Ada');
+  assert.equal(translations, 0);
+  assert.equal(get(() => { lookups++; return null; }), 'translated');
+  assert.equal(lookups, 2);
+  assert.equal(translations, 1);
+});
+
+test('hardcoded analysis includes module text and unsupported visible concatenation', () => {
+  const input = 'const EMPTY_HEADING = "No entries yet.";\nconst DEFAULT_CAPTION = `Hello ${account}`;\nconst Page = () => <p>{"Hello " + name}</p>;';
+  const result = extractSource(input, { analyze: true });
+  assert.equal(result.findings.length, 3);
+  assert.deepEqual(result.findings.map(f => f.line), [1, 2, 3]);
+  assert.match(result.findings[2].text, /dynamic JSX text/);
+});
+
+test('logical extraction honors opt-outs and does not translate predicates or machine attributes', () => {
+  const input = '<><p translate="no">{name ?? "Example Brand"}</p><p>{name ?? /* i18n-ignore */ "Example Brand"}</p><p>{/* i18n-ignore */ "Example Brand"}</p><button title={hint ?? /* i18n-ignore */ "Example Brand"} className={kind ?? "Panel"} data-id={id || "Unknown"}>{mode === "Active" && name}</button><p>Hello {/* i18n-ignore */ "Example Brand"}!</p></>';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['Hello {value}!']);
+  assert.match(result.source, /mode === "Active" && name/);
+  assert.match(result.source, /className=\{kind \?\? "Panel"\}/);
+  assert.match(result.source, /data-id=\{id \|\| "Unknown"\}/);
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+});
+
+
+test('whole-expression opt-outs and branded choices remain outside language files', () => {
+  const input = '<><p>{/* i18n-ignore */ (name ?? "Example Brand")}</p><p>Hello {active ? /* i18n-ignore */ "Example Brand" : "friend"}!</p></>';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['friend', 'Hello {active}!']);
+  assert.match(result.source, /name \?\? "Example Brand"/);
+  assert.match(result.source, /active \? \/\* i18n-ignore \*\/ "Example Brand" : i18nmd\("friend"\)/);
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+});
+
+
+test('templates extract nested fallbacks and choices as well as their surrounding text', () => {
+  const input = 'function caption(name, tier) { return `Hello ${name ?? "friend"}. Status: ${tier === "gold" ? "priority" : "standard"}.`; }';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['friend', 'priority', 'standard', 'Hello {name}. Status: {tier}.']);
+  assert.match(result.source, /name: name \?\? i18nmd\("friend"\)/);
+  assert.match(result.source, /tier: tier === "gold" \? i18nmd\("priority"\) : i18nmd\("standard"\)/);
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+  assert.equal(extractSource(result.source, { existing: result.catalog }).source, result.source);
+});
+
+test('unsupported concatenation remains a finding after extracting its surrounding sentence', () => {
+  const input = '<p>Hello {"member " + name}!</p>';
+  const result = extractSource(input);
+  assert.match(result.diagnostics.join('\n'), /dynamic JSX text/);
+  assert.ok(extractSource(result.source, { analyze: true }).findings.length > 0);
+  assert.equal(extractSource('function title(name) { return "Member " + name; }', { analyze: true }).findings.length, 1);
+  assert.deepEqual(extractSource('i18nmd("state", { state: ready ? "yes" : "no" });', { analyze: true }).findings, []);
+});
+
+test('TypeScript wrappers and template opt-outs remain valid and idempotent', () => {
+  const input = 'const Page = p => <p>{(p.title ?? "No entries yet.") satisfies string}</p>;\nfunction caption() { return `Made by ${/* i18n-ignore */ "Example Brand"}`; }';
+  const result = extractSource(input);
+  assert.deepEqual(result.catalog.messages.map(m => m.translations.en), ['No entries yet.', 'Made by {value}']);
+  assert.match(result.source, /satisfies string/);
+  assert.match(result.source, /value: \/\* i18n-ignore \*\/ "Example Brand"/);
+  assert.deepEqual(extractSource(result.source, { analyze: true }).findings, []);
+});

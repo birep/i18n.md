@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3
+
+The extractor and hard-coded text check now follow more expressions that display text, and the check fails when it cannot inspect a source file.
+
+- JSX fallback values (`heading ?? "No entries yet."`, `author || "Guest"`) and conditional text (`ready && "ready"`) are extracted, including nested choices and TypeScript wrappers. Conditions and machine attributes stay unchanged.
+- Defaults inside a sentence are translated in the placeholder expression, so the surrounding sentence remains one message. Visible attributes also support templates and fallback expressions, including lowercase labels.
+- Template text returned by a function, assigned to a label, used as a parameter default, or passed to a text-state setter is extracted with named placeholders. Evaluation and short-circuit behavior stay unchanged.
+- `check --hardcoded` now includes text set once at module load and visible concatenations that need an explicit message. Previously these diagnostics were printed by extraction but discarded by the check.
+- A source file that cannot be parsed fails the check, including baseline creation. Use `--skip` to deliberately exclude a file.
+- Translation opt-outs remain outside the language files, including opt-outs on logical expressions and branded branches inside sentences.
+
 ## 0.6.2
 
 - **Text chosen in code is converted where it is evaluated each time:** a string returned from a function (`return "Cut line"`), picked in a visible attribute (`title={open ? "Hide the chat" : "Show the chat"}`), assigned to a label-like variable or property (`title = "Inspector"`, `text: done ? "Archived" : "Restored"`) or used as a label-like parameter default. Text set once at module load (`const SIGN_IN_REASON = "…"`) is reported instead, since a language change can't reach it. `check --hardcoded` counts all of these.

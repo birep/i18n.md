@@ -333,3 +333,41 @@ test('extract finds the compiled module in a monorepo without --runtime', async 
     assert.match(await readFile(path.join(root, 'apps', 'web', 'src', 'Page.tsx'), 'utf8'), /from "\.\/i18n\/ui"/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+
+test('check --hardcoded rejects fallback text, then passes after extraction', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-fallback-'));
+  const run = (...args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  try {
+    await mkdir(path.join(root, 'src'));
+    const file = path.join(root, 'src/Card.tsx');
+    await writeFile(file, 'export const Card = p => <><h2>{p.heading ?? "No entries yet."}</h2><p>{p.author || "Guest"}</p><p>Hello {p.name ?? "friend"}!</p><button title={p.hint ?? `Open ${p.section}`}>Open</button></>;');
+    const failed = run('check', '--hardcoded', 'src');
+    assert.notEqual(failed.status, 0);
+    assert.match(failed.stderr, /src\/Card\.tsx:1/);
+    const extracted = run('extract', 'src', '--in-place');
+    assert.equal(extracted.status, 0, extracted.stderr);
+    const checked = run('check', '--hardcoded', 'src');
+    assert.equal(checked.status, 0, checked.stderr);
+    assert.match(checked.stdout, /0 hard-coded strings/);
+    await writeFile(file, 'const EMPTY_HEADING = "No entries yet.";\nexport const Card = () => <p>{"Hello " + name}</p>;');
+    const unsupported = run('check', '--hardcoded', 'src');
+    assert.notEqual(unsupported.status, 0);
+    assert.match(unsupported.stderr, /src\/Card\.tsx:1/);
+    assert.match(unsupported.stderr, /src\/Card\.tsx:2/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('check --hardcoded cannot silently skip a source it fails to parse', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'i18nmd-invalid-source-'));
+  try {
+    await mkdir(path.join(root, 'src'));
+    await writeFile(path.join(root, 'src/Broken.tsx'), 'export const Broken = () => <p>{');
+    const result = spawnSync(process.execPath, [cli, 'check', '--hardcoded', 'src', '--baseline', 'baseline.json', '--write-baseline'], { cwd: root, encoding: 'utf8' });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /src\/Broken\.tsx/);
+    await assert.rejects(readFile(path.join(root, 'baseline.json')), { code: 'ENOENT' });
+    const skipped = spawnSync(process.execPath, [cli, 'check', '--hardcoded', 'src', '--skip', 'Broken'], { cwd: root, encoding: 'utf8' });
+    assert.equal(skipped.status, 0, skipped.stderr);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
