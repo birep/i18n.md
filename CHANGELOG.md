@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.5
+
+Generated TypeScript types check much faster in large catalogs.
+
+- Each division's short token names are written out as their own map, so a call such as `i18nmd.ui("save")` is a plain key lookup. Previously every call inferred short names from template literals across every token; with about 2,900 messages that more than doubled `tsc` memory (1.1 GB to 2.4 GB) and took check time from 8 s to 62 s.
+
 ## 0.6.4
 
 The extractor now follows display text passed through local rendering helpers and detects more component properties.

@@ -222,3 +222,10 @@ test('placeholders take elements, and {x, list} joins lists for each language', 
   assert.throws(() => translate(catalog('{x, list}', '{x, number}')), /incompatible type/);
   assert.match(generateModule(catalog('{x, list} {y}', '{x, list} {y}')), /"x": readonly \(string \| number \| object\)\[\]; "y": string \| number \| null \| undefined \| object/);
 });
+
+test('division scopes look up short tokens in a written-out map, not by template inference', () => {
+  const module = generateModule({ ...catalog('Hi'), messages: [{ key: 'ui.save', division: 'ui', context: '', optional: [], translations: { en: '<b>Save</b>', fr: '<b>Save</b>' } }] });
+  assert.doesNotMatch(module, /infer S/);
+  assert.match(module, /interface Values0 \{\n  "save": Values\["ui\.save"\];\n\}/);
+  assert.match(module, /readonly ui: Scope<Values0, "save">/);
+});
