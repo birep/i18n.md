@@ -10,6 +10,7 @@ import { extractHtml, renderHtml } from '../lib/html.mjs';
 import { lockPathFor, findLock, namedRoot, readLock, serializeLock, report, syncLock, markCurrent } from '../lib/lock.mjs';
 import { resolveLanguage, topLanguages, RANKED } from '../lib/languages.mjs';
 import { estimateTokens, llmConfig, translateLanguage } from '../lib/llm.mjs';
+import { estimateMessages, translateMessages } from '../lib/stored.mjs';
 import { importMessages, exportMessages, FORMATS } from '../lib/interop.mjs';
 
 const help = `i18nmd — one Markdown file per language
@@ -24,6 +25,9 @@ Translate with an LLM
       --budget 200000 (estimated tokens before --yes is required) --reasoning low|medium|high --yes
       --max-output 8000 (the model's reply limit; requests are sized to fit it)
       --dry-run (list the work without calling the API).
+  i18nmd translate --json < request.json   Translate stored text (database rows) without language files:
+      reads { source, languages, kind, messages, previous } on stdin and writes
+      { translations, failed, usage } to stdout. Same flags; see "Text from a database" in the README.
 
 Keep files in shape
   status                                   Progress per language: done, missing, stale.
@@ -278,6 +282,33 @@ async function translate(ws, targets, options) {
   if (failures) { process.exitCode = 1; console.warn(`i18nmd: ${plural(failures, 'message')} could not be translated; they fall back to ${catalog.source}. Run i18nmd translate to retry.`); }
 }
 
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+// Stored text in, translations out, as JSON: for apps that keep their text in a
+// database and call i18nmd as a program. Progress goes to stderr.
+async function translateJson(options) {
+  let request;
+  try { request = JSON.parse(await readStdin()); } catch (error) { throw new Error(`--json reads a JSON request on stdin: ${error.message}`); }
+  if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('--json reads a JSON object on stdin.');
+  const batchSize = options.batch ? Number(options.batch) : undefined;
+  if (batchSize !== undefined && (!Number.isInteger(batchSize) || batchSize < 1)) throw new Error('--batch must be a positive whole number.');
+  const settings = { source: request.source, languages: request.languages, kind: request.kind, previous: request.previous, formatters: request.formatters, batchSize };
+  const config = options['dry-run'] ? undefined : llmConfig(options);
+  const estimate = estimateMessages(request.messages, { ...settings, config });
+  console.error(`${plural(estimate.messages, 'message')} to translate: about ${estimate.requests} requests, ${estimate.input.toLocaleString('en')} input and ${estimate.output.toLocaleString('en')} output tokens${config ? ` with ${config.model}` : ''}.`);
+  if (options['dry-run']) { process.stdout.write(JSON.stringify({ estimate }) + '\n'); return; }
+  const budget = Number(options.budget || 200000);
+  if (estimate.input + estimate.output > budget && !options.yes) throw new Error(`That is over the ${budget.toLocaleString('en')}-token budget. Rerun with --yes to spend it, or --budget to raise the limit.`);
+  const result = await translateMessages(request.messages, { ...settings, config });
+  const failures = Object.values(result.failed).reduce((n, keys) => n + Object.keys(keys).length, 0);
+  if (failures) console.error(`i18nmd: ${plural(failures, 'message')} could not be translated; they are listed under failed.`);
+  process.stdout.write(JSON.stringify(result) + '\n');
+}
+
 function localeFromJsonPath(file) {
   const base = path.basename(file, '.json');
   try { if (/^[a-z]{2,3}(?:[-_][A-Za-z0-9]+)*$/.test(base)) return { locale: Intl.getCanonicalLocales(base.replace(/_/g, '-'))[0] }; } catch { /* fall through */ }
@@ -299,7 +330,7 @@ async function main() {
     if (arg === '--add' && command === 'add') continue;
     if (!arg.startsWith('--')) { positional.push(arg); continue; }
     let flag = arg.slice(2);
-    if (!valued.test(flag) && !['merge', 'strict', 'dry-run', 'in-place', 'eager', 'fix', 'yes', 'write-baseline'].includes(flag)) throw new Error(`Unknown option: ${arg}`);
+    if (!valued.test(flag) && !['merge', 'strict', 'dry-run', 'in-place', 'eager', 'fix', 'yes', 'write-baseline', 'json'].includes(flag)) throw new Error(`Unknown option: ${arg}`);
     flag = aliases[flag] || flag;
     if (Object.hasOwn(options, flag)) throw new Error(`Duplicate option: ${arg}`);
     if (!valued.test(flag)) options[flag] = true;
@@ -322,6 +353,10 @@ async function main() {
     const ws = await open(paths[0], options); ws.warn();
     const targets = command === 'top' ? topLanguages(Number(positional[0])).map(resolveLanguage) : positional.map(resolveLanguage);
     await translate(ws, targets, options); return;
+  }
+  if (command === 'translate' && options.json) {
+    if (positional.length || options.only) throw new Error('translate --json takes its messages and languages on stdin, not a path or --only.');
+    await translateJson(options); return;
   }
   if (command === 'translate') {
     const ws = await open(one(), options); ws.warn();

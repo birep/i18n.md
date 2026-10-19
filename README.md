@@ -420,7 +420,41 @@ Commands find `translations/`, `i18n/`, `locales/` or the current directory on t
 
 ## Text from a database
 
-Sentences stored in a database, such as narration written by people or agents, are translated through the same files. i18nmd has no database adapter and never translates at request time; the Markdown files and the lock are the cache, so each sentence is translated once.
+Text an app stores itself, such as articles, help pages or narration written by people or agents, can be translated without language files. The app keeps each translation next to its source with a fingerprint, and passes the stored translations back on the next call; i18nmd sends only entries that are new or whose source changed.
+
+```js
+import { translateMessages } from '@likolabs/i18nmd';
+
+const { translations, failed } = await translateMessages({
+  title: 'Shelf brackets',
+  intro: { spans: [{ text: 'Read ' }, { text: 'the guide', link: '/guide' }, { text: ' first.' }], context: 'First paragraph' },
+}, { source: 'en', languages: ['fr', 'de'], kind: 'prose', previous: stored });
+// translations.fr.intro = { spans: [{ text: 'Lisez ' }, { text: 'le guide', link: '/guide' }, …], fingerprint: '…' }
+```
+
+- **An entry** is an ICU message string, `{ text, context }`, or `{ spans, context }` for rich text. Spans are the shape most editors save: `{ text, ...marks }`, where every other property with a value is a mark (`bold: true`, `link: "https://…"`). Each entry becomes one message with its marks as tags (`Read <link>the guide</link> first.`), so a translator can reorder them. Mark values never reach the model: a link target comes back from the source spans, and a reply that drops or invents a tag is rejected. Text without letters is copied as it is. Send plain text that may contain `{` or `<` as `{ spans: [{ text }] }`, which escapes it.
+- **`previous`** has the shape of `translations`: `{ fr: { intro: { spans, fingerprint } } }`. An entry whose fingerprint matches its current source is returned as it was, with no request. A changed one is translated again, with its earlier translation offered to the model as a guide to the wording. A changed link target counts as a change.
+- **`kind: 'prose'`** asks for a faithful translation of a longer text, paragraph by paragraph, keeping `<code>` text as it is. The default, `'interface'`, asks for concise interface strings.
+- **`failed`** maps language and key to the reason an entry could not be translated. Show the source text for those until the next call retries them.
+- `budget` (estimated tokens) refuses a call before it spends anything, and `estimateMessages(messages, options)` prices one, including how many entries it would send. `config` takes the result of `llmConfig()`; without it the endpoint comes from the same variables as `translate`.
+
+`spansToMessage(spans)` and `messageToSpans(message, tags)` are exported for apps that keep translations their own way.
+
+### From another language
+
+`i18nmd translate --json` does the same as a program, for apps not written in JavaScript. It reads `{ source, languages, kind, messages, previous }` on stdin and writes `{ translations, failed, usage }` on stdout; progress and the estimate go to stderr. The endpoint flags, `--budget` (200,000 unless `--yes`), `--batch` and `--dry-run` (writes `{ estimate }`) work as they do for `translate`.
+
+```python
+import json, subprocess
+
+request = {"source": "en", "languages": ["fr", "de"], "kind": "prose", "messages": entries, "previous": stored}
+done = subprocess.run(["npx", "i18nmd", "translate", "--json"], input=json.dumps(request), capture_output=True, text=True, check=True)
+result = json.loads(done.stdout)
+```
+
+### Through language files
+
+Sentences that should ship with the app, compiled with its other text, can go through the language files instead:
 
 1. A job in your app writes new or changed sentences as FormatJS JSON, `{"step_42": {"defaultMessage": "Cut the board to {len, length}.", "description": "Narration for step 42"}}`, and merges them into a division's source file:
 
@@ -467,7 +501,7 @@ FormatJS and next-intl already use ICU, so conversion is lossless, and FormatJS 
 | `render <site>` | `--out dist`, `--url https://example.com` |
 | `extract <src…>` | `--in-place`, `--out translations/<division>`, `--source en`, `--runtime src/i18n/i18n`, `--dest .i18n/src`, `--locale-expr locale` (calls use `i18nmd.in(locale)`) |
 | `compile` | `--out src/i18n`, `--target ts\|js\|json\|python`, `--eager`, `--only <division,…>` or `--skip <division,…>` |
-| `--add <language>`, `--top <n>`, `translate` | `--only fr,de`, `--dry-run`, `--provider`, `--base-url`, `--model`, `--budget`, `--yes`, `--reasoning`, `--batch <n>`; a path picks a division: `--add zh translations/site` |
+| `--add <language>`, `--top <n>`, `translate` | `--only fr,de`, `--dry-run`, `--provider`, `--base-url`, `--model`, `--budget`, `--yes`, `--reasoning`, `--batch <n>`; a path picks a division: `--add zh translations/site`; `--json` translates stored text from stdin |
 | `accept <token…>` | `--only fr,de` |
 | `status`, `check`, `sync` | `--strict`, `--in src`, `--fix`, `--skip` |
 | `rename <old> <new>` | `--in src` |

@@ -396,3 +396,36 @@ test('CLI checks helper arguments and component props, and reports computed labe
     assert.match(result.stderr, /display text is derived from an identifier/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('translate --json translates stored text from stdin and skips what is current', async () => {
+  const { startMockLLM } = await import('./fixtures/mock-llm.mjs');
+  const llm = await startMockLLM();
+  try {
+    const env = { PATH: process.env.PATH, I18NMD_BASE_URL: `${llm.url}/v1`, I18NMD_API_KEY: 'key', I18NMD_MODEL: 'local-model' };
+    const run = (input, ...args) => new Promise(resolve => {
+      const child = execFile(process.execPath, [cli, 'translate', '--json', ...args], { env }, (error, stdout, stderr) => resolve({ status: error ? error.code ?? 1 : 0, stdout, stderr }));
+      child.stdin.end(typeof input === 'string' ? input : JSON.stringify(input));
+    });
+    const request = { source: 'en', languages: ['fr'], kind: 'prose', messages: { title: { spans: [{ text: 'Shelf brackets' }] }, intro: { spans: [{ text: 'See ' }, { text: 'the guide', link: 'https://example.com' }, { text: '.' }], context: 'First paragraph' } } };
+    let result = await run(request, '--dry-run');
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).estimate.messages, 2);
+    assert.equal(llm.requests.length, 0);
+    result = await run(request, '--budget', '10');
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /over the 10-token budget/);
+    result = await run(request);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(llm.requests.length, 1);
+    assert.match(llm.requests[0].body.messages[0].content, /published prose/);
+    const { translations, failed } = JSON.parse(result.stdout);
+    assert.deepEqual(failed, {});
+    assert.deepEqual(translations.fr.intro.spans, [{ text: '[fr] See ' }, { text: 'the guide', link: 'https://example.com' }, { text: '.' }]);
+    result = await run({ ...request, previous: translations });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(llm.requests.length, 1);
+    assert.deepEqual(JSON.parse(result.stdout).translations, translations);
+    assert.match((await run('not json')).stderr, /reads a JSON request on stdin/);
+    assert.match((await run(request, 'translations')).stderr, /not a path or --only/);
+  } finally { llm.close(); }
+});

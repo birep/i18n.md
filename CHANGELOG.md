@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+Text an app keeps in a database, such as articles or narration, can be translated without language files.
+
+- `translateMessages(messages, options)` translates keyed entries into several languages and returns each translation with a fingerprint of its source. Pass the stored translations back as `previous` and only new or changed entries are sent; an unchanged entry costs nothing. A changed entry's earlier translation guides the new wording.
+- Rich text as spans (`[{ text, bold: true }, { text, link: "…" }]`) is translated as one message per sentence with its marks as tags, so translators can reorder them. Link targets and other mark values never reach the model and come back from the source. `spansToMessage` and `messageToSpans` are exported.
+- `kind: 'prose'` asks for a faithful translation of longer text, keeping `<code>` text unchanged, instead of concise interface strings.
+- `i18nmd translate --json` does the same as a program for apps in other languages: a request on stdin, translations on stdout, with the usual endpoint flags, `--budget`, `--yes` and `--dry-run`.
+- `estimateMessages` prices a call, and a `budget` option refuses one before it spends anything.
+
 ## 0.6.5
 
 Generated TypeScript types check much faster in large catalogs.
