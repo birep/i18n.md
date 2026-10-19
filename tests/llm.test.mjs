@@ -48,3 +48,25 @@ test('one malformed message in a reply does not discard the others', () => {
   assert.deepEqual(Object.keys(ok).sort(), ['m0', 'm2']);
   assert.match(errors.m1, /unreadable reply|missing/);
 });
+
+test('quotation marks written as lone apostrophes before a tag or placeholder are repaired', () => {
+  const catalog = parseCatalog("# English\n\n## see\n\n```icu\nPress <link>Save</link>.\n```\n\n## hi\n\n```icu\nOpen {name} now.\n```\n\n## brace\n\n```icu\nType '{' to start.\n```\n", { locale: 'en' });
+  const reply = [
+    "## see\n\n```icu\nDruk op <link>'Opslaan'</link>.\n```",
+    "## hi\n\n```icu\nOpen '{name}' nu.\n```",
+    "## brace\n\n```icu\nTyp '{' om te beginnen.\n```",
+  ].join('\n\n');
+  const { ok, errors } = readReply(reply, catalog, { code: 'nl', name: 'Nederlands' }, catalog.messages);
+  assert.deepEqual({ ...errors }, {});
+  assert.equal(ok.see, "Druk op <link>'Opslaan''</link>.");
+  assert.equal(ok.hi, "Open ''{name}' nu.");
+  // Deliberate quoting is valid as written and kept as it is.
+  assert.equal(ok.brace, "Typ '{' om te beginnen.");
+});
+
+test('a repair that still does not match the source is reported, not kept', () => {
+  const catalog = parseCatalog('# English\n\n## see\n\n```icu\nSee <link>this</link>.\n```\n', { locale: 'en' });
+  const { ok, errors } = readReply("## see\n\n```icu\nZie 'dit'</b>.\n```", catalog, { code: 'nl', name: 'Nederlands' }, catalog.messages);
+  assert.deepEqual({ ...ok }, {});
+  assert.match(errors.see, /missing <link>/);
+});

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.1
+
+- **Quotation marks around a tag's text no longer fail a translation.** Some languages quote interface names with single quotes, and a lone apostrophe directly before `<`, `{` or `}` starts quoted text in ICU, so `<b>'Opslaan'</b>` swallowed the closing tag and the message was rejected every time. A reply message that fails as written is tried again with that apostrophe doubled, and kept only if it then matches its source; deliberate quoting such as `'{'` is valid as written and never changed. The prompt now names `<` among the characters that need `''`.
+
 ## 0.7.0
 
 Text an app keeps in a database, such as articles or narration, can be translated without language files.
